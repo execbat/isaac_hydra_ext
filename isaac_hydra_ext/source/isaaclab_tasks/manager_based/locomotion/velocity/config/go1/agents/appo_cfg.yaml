@@ -1,0 +1,68 @@
+env_name: Isaac-Velocity-Sber-Unitree-Go1-v0
+experiment_name: go1_appo
+
+seed: 42
+algo: appo
+device: cuda:0
+resume: false           # for CLI override
+max_iterations: 1000   # 
+
+save_model_every: 100
+logger: tensorboard   
+
+
+
+load_run:
+load_checkpoint:    
+log_dir: runs/appo_go1
+
+  
+
+
+# --- parameters APPO ---
+appo_params:
+  num_workers: 2
+  envs_per_worker: 2
+  gamma: 0.99
+  lam: 0.95
+
+  clip_eps_start: 0.2
+  clip_eps_max: 0.2
+  clip_eps_min: 0.05
+
+  lr: 0.0003
+  entropy_coef: 0.001
+  update_epochs: 5
+  batch_size: 512
+  steps_per_env: 128
+
+  kl_treshold: 0.03  
+
+
+models:
+  separate: false
+  policy:
+    class: GaussianMixin
+    clip_actions: false
+    clip_log_std: true
+    min_log_std: -20.0
+    max_log_std: 2.0
+    initial_log_std: 0.0
+    network:
+      - name: net
+        input: STATES
+        layers: [128, 128, 128]
+        activations: elu
+    output: ACTIONS
+  value:
+    class: DeterministicMixin
+    clip_actions: false
+    network:
+      - name: net
+        input: STATES
+        layers: [128, 128, 128]
+        activations: elu
+    output: ONE
+
+
+

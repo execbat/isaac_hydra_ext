@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import gymnasium as gym
-import custom_envs  # your custom environments
-import mujoco
+#import custom_envs  # your custom environments
+#import mujoco
 import multiprocessing as mp
 
 from typing import List, Tuple, Dict, Any
@@ -16,7 +16,7 @@ from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 from multiprocessing import Queue, Process
 
-from utils import Actor, Critic
+from isaac_hydra_ext.utils import Actor, Critic
 
 # Set CUDA environment options
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
