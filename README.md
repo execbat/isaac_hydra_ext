@@ -1,5 +1,9 @@
 # isaac_hydra_ext
 
+![Isaac Lab](go1_rough.jpg)
+
+---
+
 A Hydra extension and lightweight runner that connects my training algorithm (APPO/PPO) to NVIDIA **Isaac Sim / Isaac Lab** as an external add-on.  
 It lets you launch training via Hydra configs without modifying the trainer.
 
