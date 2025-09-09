@@ -38,6 +38,5 @@ isaac_hydra_ext/
       │  └─ default.yaml
       └─ experiment/
          └─ default.yaml
-
 ```
 
