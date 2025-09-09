@@ -1,0 +1,21 @@
+# Пример таска, который расширяет базовый (переопредели имя при необходимости)
+# В Isaac Lab чаще группы называются /task, /agent, /env и т.д.
+defaults:
+  - override /task: go1_flat   # замени на актуальный базовый конфиг из isaaclab_tasks
+  - _self_
+
+task:
+  mdp:
+    rewards:
+      terms:
+        dwell_bonus:
+          func: isaac_hydra_ext.rewards.masked_dwell_bonus  # путь к вашей функции
+          weight: 1000.0
+          params:
+            mask_name: "dof_mask"
+            eps: 0.04
+            vel_eps: 0.03
+            hold_steps: 2
+            bonus: 0.5
+            growth: 0.1
+            max_bonus: 3.0
