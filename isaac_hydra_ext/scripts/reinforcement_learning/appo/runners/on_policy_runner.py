@@ -59,44 +59,58 @@ def combine_batches(all_data: List[Dict[str, torch.Tensor]]) -> Tuple[torch.Tens
 
 def collect_samples(envs, actor, critic, gamma: float, lam: float,
                     steps_per_env: int, device: torch.device) -> Dict[str, Any]:
-    state, _ = envs.reset()
+    observation, _ = envs.reset()
+    state_tensor = observation['policy']
+    
     states, actions, log_probs, rewards, dones, values, mus, stds = [], [], [], [], [], [], [], []
 
     for _ in range(steps_per_env):
-        state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
+        #state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
         mu, std = actor(state_tensor)
         dist = torch.distributions.Normal(mu, std)
         action = dist.sample()
         log_prob = dist.log_prob(action).sum(-1)
 
-        next_state, reward, terminated, truncated, _ = envs.step(action.cpu().numpy())
-        done = np.logical_or(terminated, truncated)
+        next_observation, reward, terminated, truncated, _ = envs.step(action)
+        next_state_tensor = next_observation['policy']
+        #done_np = np.logical_or(terminated, truncated)
+        #done = torch.as_tensor(done_np, device=device, dtype=torch.bool) 
+        terminated_t = torch.as_tensor(terminated, dtype=torch.bool, device=device)
+        truncated_t  = torch.as_tensor(truncated,  dtype=torch.bool, device=device)
+        done    = terminated_t | truncated_t 
 
-        if np.any(done):
+        if done.any().item():
             if hasattr(envs, "reset_done"):
                 try:
-                    reset_obs, _ = envs.reset_done()
-                    next_state[done] = reset_obs[done]
+                    observation, _ = envs.reset_done()
+                    next_state_tensor[done] = observation['policy'][done]
                 except Exception:
                     # fallback: entire reset
-                    state, _ = envs.reset()
-                    next_state = state
+                    observation, _ = envs.reset()
+                    state_tensor = observation['policy']
+                    next_state_tensor = state_tensor
             else:
-                state, _ = envs.reset()
-                next_state = state
+                observation, _ = envs.reset()
+                state_tensor = observation['policy']
+                next_state_tensor = state_tensor
 
         value = critic(state_tensor).squeeze(-1)
+        
+        
 
         states.append(state_tensor)
-        actions.append(action)
-        log_probs.append(log_prob.detach())
+        #actions.append(action)
+        actions.append(action.detach().cpu())
+        log_probs.append(log_prob.detach().cpu())
+        #log_probs.append(log_prob.detach())
         rewards.append(torch.tensor(reward, dtype=torch.float32, device=device))
-        dones.append(torch.tensor(done, dtype=torch.float32, device=device))
+        #dones.append(torch.tensor(done, dtype=torch.float32, device=device))
+        dones.append(done.to(dtype=torch.float32, device=device))
         values.append(value.detach())
         mus.append(mu.detach())
         stds.append(std.detach())
 
-        state = next_state
+        state_tensor = next_state_tensor
 
     rewards = torch.stack(rewards)
     values = torch.stack(values)
@@ -219,6 +233,18 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
                 samples = collect_samples(envs, actor.to(device), critic.to(device),
                                           gamma, lam, steps_per_env, device)
             queue.put(samples)
+    except Exception as e:
+        import traceback
+        msg = f"[WORKER {worker_id}] crashed:\n{traceback.format_exc()}"
+        print(msg, flush=True)
+        if errs_path:
+            with open(errs_path, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        # сообщим главному процессу явным сообщением
+        try:
+            queue.put({"_worker_error": msg})
+        except Exception:
+            pass
     finally:
         try:
             simulation_app.close()

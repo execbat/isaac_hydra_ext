@@ -5,7 +5,7 @@ seed: 42
 algo: appo
 device: cuda:0
 resume: false           # for CLI override
-max_iterations: 100   # 
+max_iterations: 1000000   # 
 
  
 
@@ -32,8 +32,8 @@ appo_params:
   lr: 0.0003
   entropy_coef: 0.001
   update_epochs: 5
-  batch_size: 128
-  steps_per_env: 24
+  batch_size: 512
+  steps_per_env: 128
 
   kl_treshold: 0.03  
 
@@ -67,6 +67,6 @@ models:
 
 log_params:
   log_dir: "logs/ppo_run"
-  save_model_every: 10
+  save_model_every: 1000
   logger: tensorboard  
 
