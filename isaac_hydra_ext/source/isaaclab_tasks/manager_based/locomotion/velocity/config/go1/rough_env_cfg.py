@@ -18,7 +18,8 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
-
+        
+        self.episode_length_s = 40.0
         self.scene.robot = UNITREE_GO1_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/trunk"
         # scale down the terrains because the robot is small
@@ -66,7 +67,9 @@ class UnitreeGo1RoughEnvCfg_PLAY(UnitreeGo1RoughEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
-
+        
+        
+        self.episode_length_s = 40.0
         # make a smaller scene for play
         self.scene.num_envs = 50
         self.scene.env_spacing = 2.5
