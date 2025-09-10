@@ -1,215 +1,192 @@
-# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
+# train.py
+from __future__ import annotations
+import argparse, os, multiprocessing as mp, re, yaml, importlib.util as ilu
+from pathlib import Path
 
-"""Script to train RL agent with RSL-RL."""
+# -------- utils --------
+def deep_update(base: dict, upd: dict) -> dict:
+    for k, v in (upd or {}).items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            deep_update(base[k], v)
+        else:
+            base[k] = v
+    return base
 
-"""Launch Isaac Sim Simulator first."""
+def clean(d: dict) -> dict:
+    return {k: v for k, v in (d or {}).items() if v is not None}
 
-import argparse
-import sys
+def load_yaml(path: str | Path) -> dict:
+    p = Path(path)
+    with p.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
-from isaaclab.app import AppLauncher
+def default_appo_params() -> dict:
+    return {
+        "num_workers": 1,
+        "envs_per_worker": 1,
+        "gamma": 0.99,
+        "lam": 0.95,
+        "clip_eps_start": 0.2,
+        "clip_eps_max": 0.2,
+        "clip_eps_min": 0.05,
+        "lr": 3e-4,
+        "entropy_coef": 1e-3,
+        "update_epochs": 5,
+        "batch_size": 128,
+        "steps_per_env": 24,
+        "kl_treshold": 0.03,
+    }
 
-# local imports
-import isaac_hydra_ext.scripts.reinforcement_learning.appo.cli_args as cli_args
+def _tokens(s: str) -> set[str]:
+    return set(re.findall(r"[A-Za-z0-9]+", (s or "").lower()))
 
+def find_appo_cfg(task: str, explicit_path: str | None) -> str | None:
+    # 1) explicit
+    if explicit_path and Path(explicit_path).is_file():
+        return explicit_path
+    # 2) ./appo_cfg.yaml
+    cwd_cfg = Path("appo_cfg.yaml")
+    if cwd_cfg.is_file():
+        return str(cwd_cfg)
+    # 3) scan inside isaac_hydra_ext package
+    spec = ilu.find_spec("isaac_hydra_ext")
+    if not spec or not spec.submodule_search_locations:
+        return None
+    base = Path(list(spec.submodule_search_locations)[0]) / "source" / "isaaclab_tasks"
+    candidates = list(base.rglob("agents/appo_cfg.yaml"))
+    if not candidates:
+        return None
+    T = _tokens(task)
+    def score(p: Path) -> int:
+        return len(T & _tokens(str(p)))
+    candidates.sort(key=score, reverse=True)
+    return str(candidates[0])
 
-
-
-# add argparse arguments
-parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
-parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
-parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
-parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
-parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default=None, help="Name of the task.")
-parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
-parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument(
-    "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
-)
-# append RSL-RL cli arguments
-cli_args.add_rsl_rl_args(parser)
-# append AppLauncher cli args
-AppLauncher.add_app_launcher_args(parser)
-args_cli, hydra_args = parser.parse_known_args()
-
-# always enable cameras to record video
-if args_cli.video:
-    args_cli.enable_cameras = True
-
-# clear out sys.argv for Hydra
-sys.argv = [sys.argv[0]] + hydra_args
-
-# launch omniverse app
-app_launcher = AppLauncher(args_cli)
-simulation_app = app_launcher.app
-
-"""Check for minimum supported RSL-RL version."""
-
-import importlib.metadata as metadata
-import platform
-
-from packaging import version
-import isaaclab_tasks  
-import isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1  
-
-
-# for distributed training, check minimum supported rsl-rl version
-RSL_RL_VERSION = "2.3.1"
-installed_version = metadata.version("rsl-rl-lib")
-if args_cli.distributed and version.parse(installed_version) < version.parse(RSL_RL_VERSION):
-    if platform.system() == "Windows":
-        cmd = [r".\isaaclab.bat", "-p", "-m", "pip", "install", f"rsl-rl-lib=={RSL_RL_VERSION}"]
-    else:
-        cmd = ["./isaaclab.sh", "-p", "-m", "pip", "install", f"rsl-rl-lib=={RSL_RL_VERSION}"]
-    print(
-        f"Please install the correct version of RSL-RL.\nExisting version is: '{installed_version}'"
-        f" and required version is: '{RSL_RL_VERSION}'.\nTo install the correct version, run:"
-        f"\n\n\t{' '.join(cmd)}\n"
+# -------- parser --------
+def build_parser():
+    p = argparse.ArgumentParser(
+        description="Train APPO (main process is Isaac/Kit-free).",
+        conflict_handler="resolve",
     )
-    exit(1)
+    p.add_argument("--task", type=str, required=True, help="e.g. Isaac-Velocity-Sber-Unitree-Go1-v0")
+    p.add_argument("--appo_cfg_path", type=str, default=None, help="Path to appo_cfg.yaml")
+    p.add_argument("--num_envs", type=int, default=None)
+    p.add_argument("--seed", type=int, default=None)
+    p.add_argument("--max_iterations", type=int, default=None)
 
-"""Rest everything follows."""
+    # devices/mode
+    p.add_argument("--headless", action="store_true", default=True)
+    p.add_argument("--sim_device", type=str, default=None)   # cpu / cuda:0
+    p.add_argument("--rl_device", type=str, default=None)    # cpu / cuda:0
+    p.add_argument("--device", type=str, default=None)       # optional hint
 
-import gymnasium as gym
-import os
-import torch
-from datetime import datetime
+    # video
+    p.add_argument("--video", action="store_true", default=False)
+    p.add_argument("--video_length", type=int, default=200)
+    p.add_argument("--video_interval", type=int, default=2000)
 
+    # APPO overrides
+    p.add_argument("--num_workers", type=int, default=None)
+    p.add_argument("--envs_per_worker", type=int, default=None)
+    p.add_argument("--gamma", type=float, default=None)
+    p.add_argument("--lam", type=float, default=None)
+    p.add_argument("--clip_eps_start", type=float, default=None)
+    p.add_argument("--clip_eps_max", type=float, default=None)
+    p.add_argument("--clip_eps_min", type=float, default=None)
+    p.add_argument("--lr", type=float, default=None)
+    p.add_argument("--entropy_coef", type=float, default=None)
+    p.add_argument("--update_epochs", type=int, default=None)
+    p.add_argument("--batch_size", type=int, default=None)
+    p.add_argument("--steps_per_env", type=int, default=None)
+    p.add_argument("--kl_treshold", type=float, default=None)
+    return p
 
-from .runners import OnPolicyRunner
+# -------- main --------
+def main():
+    mp.set_start_method("spawn", force=True)
 
-from isaaclab.envs import (
-    DirectMARLEnv,
-    DirectMARLEnvCfg,
-    DirectRLEnvCfg,
-    ManagerBasedRLEnvCfg,
-    MathManagerBasedRLEnvCfg,
-    multi_agent_to_single_agent,
-)
-from isaaclab.utils.dict import print_dict
-from isaaclab.utils.io import dump_pickle, dump_yaml
+    args = build_parser().parse_args()
 
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, MathRslRlVecEnvWrapper
+    # env for workers that will start Kit
+    if args.video:
+        os.environ.setdefault("ENABLE_CAMERAS", "1")
+    os.environ.setdefault("KIT_WINDOWMODE", "headless")
+    os.environ.setdefault("OMNI_KIT_WINDOW_FLAGS", "headless")
+    os.environ.setdefault("PYTHON_NO_USD_RENDER", "1")
+    os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
-import isaac_hydra_ext.source.isaaclab_tasks  # noqa: F401
-from isaac_hydra_ext.source.isaaclab_tasks.utils import get_checkpoint_path
-from isaac_hydra_ext.source.isaaclab_tasks.utils.hydra import hydra_task_config
-from isaac_hydra_ext.scripts.reinforcement_learning.appo.cli_args import _cfg_get
-from isaac_hydra_ext.source.isaaclab_tasks.utils import UnbatchedEnv
+    # base cfg
+    train_cfg = {
+        "env_name": args.task,
+        "experiment_name": "appo_run",
+        "seed": 42,
+        "algo": "appo",
+        "device": args.device,
+        "resume": False,
+        "max_iterations": 1000,
+        "num_envs": args.num_envs,
 
-# PLACEHOLDER: Extension template (do not remove this comment)
+        "sim_device": args.sim_device,
+        "rl_device": args.rl_device,
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-torch.backends.cudnn.deterministic = False
-torch.backends.cudnn.benchmark = False
+        "video": bool(args.video),
+        "video_length": args.video_length,
+        "video_interval": args.video_interval,
+        "headless": bool(args.headless),
 
+        "log_params": {
+            "log_dir": "logs/ppo_run",
+            "save_model_every": 10,
+            "logger": "tensorboard",
+        },
 
-@hydra_task_config(args_cli.task, "appo_cfg_entry_point")
-def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
-    """Train with APPO-RL agent."""
-    # override configurations with non-hydra CLI arguments
-    agent_cfg = cli_args.update_agent_cfg_yaml(agent_cfg, args_cli)
-    env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
-    num_learning_iterations = (
-        getattr(args_cli, "max_iterations", None)
-        if getattr(args_cli, "max_iterations", None) is not None
-        else _cfg_get(agent_cfg, "max_iterations", _cfg_get(agent_cfg, "episodes", 1000))
+        "appo_params": default_appo_params(),
+        "models": {"obs_dim": None, "act_dim": None},
+    }
+
+    # merge YAML (auto-discovery)
+    cfg_path = find_appo_cfg(args.task, args.appo_cfg_path)
+    if cfg_path:
+        yaml_cfg = load_yaml(cfg_path)
+        deep_update(train_cfg, yaml_cfg)
+
+    # CLI overrides
+    if args.seed is not None:
+        train_cfg["seed"] = args.seed
+    if args.max_iterations is not None:
+        train_cfg["max_iterations"] = args.max_iterations
+    deep_update(train_cfg["appo_params"], clean({
+        "num_workers": args.num_workers,
+        "envs_per_worker": args.envs_per_worker,
+        "gamma": args.gamma,
+        "lam": args.lam,
+        "clip_eps_start": args.clip_eps_start,
+        "clip_eps_max": args.clip_eps_max,
+        "clip_eps_min": args.clip_eps_min,
+        "lr": args.lr,
+        "entropy_coef": args.entropy_coef,
+        "update_epochs": args.update_epochs,
+        "batch_size": args.batch_size,
+        "steps_per_env": args.steps_per_env,
+        "kl_treshold": args.kl_treshold,
+    }))
+
+    # sanity for experiment_name
+    if not train_cfg.get("experiment_name"):
+        train_cfg["experiment_name"] = "appo_run"
+
+    # must have model dims now (your YAML has them)
+    m = train_cfg.get("models", {})
+    if m.get("obs_dim") is None or m.get("act_dim") is None:
+        raise ValueError("models.obs_dim and models.act_dim must be provided (e.g. 235/12 for Go1).")
+
+    # import only the runner (it must not import Isaac/Kit at module top)
+    from isaac_hydra_ext.scripts.reinforcement_learning.appo.runners.on_policy_runner import (
+        APPOMultiProcRunner as OnPolicyRunner
     )
-
-    # set the environment seed
-    # note: certain randomizations occur in the environment initialization so we set the seed here
-    env_cfg.seed = agent_cfg['seed']
-    env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
-
-    # multi-gpu training configuration
-    if args_cli.distributed:
-        env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"
-        agent_cfg.device = f"cuda:{app_launcher.local_rank}"
-
-        # set seed to have diversity in different threads
-        seed = agent_cfg.seed + app_launcher.local_rank
-        env_cfg.seed = seed
-        agent_cfg.seed = seed
-
-    # specify directory for logging experiments
-    log_root_path = os.path.join("logs", agent_cfg['algo'], agent_cfg['experiment_name'])
-    log_root_path = os.path.abspath(log_root_path)
-    print(f"[INFO] Logging experiment in directory: {log_root_path}")
-    # specify directory for logging runs: {time-stamp}_{run_name}
-    log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    # The Ray Tune workflow extracts experiment name using the logging line below, hence, do not change it (see PR #2346, comment-2819298849)
-    print(f"Exact experiment name requested from command line: {log_dir}")
-    if agent_cfg['experiment_name']:
-        log_dir += f"_{agent_cfg['experiment_name']}"
-    log_dir = os.path.join(log_root_path, log_dir)
-
-    # create isaac environment
-    env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
-    
-    # convert to single-agent instance if required by the RL algorithm
-    if isinstance(env.unwrapped, DirectMARLEnv):
-        env = multi_agent_to_single_agent(env)
-
-    # save resume path before creating a new log_dir
-    if agent_cfg['resume']:
-        resume_path = get_checkpoint_path(
-            log_root_path,
-            agent_cfg.load_run,        
-            agent_cfg.load_checkpoint,  
-        )
-
-    # wrap for video recording
-    if args_cli.video:
-        video_kwargs = {
-            "video_folder": os.path.join(log_dir, "videos", "train"),
-            "step_trigger": lambda step: step % args_cli.video_interval == 0,
-            "video_length": args_cli.video_length,
-            "disable_logger": True,
-        }
-        print("[INFO] Recording videos during training.")
-        print_dict(video_kwargs, nesting=4)
-        env = gym.wrappers.RecordVideo(env, **video_kwargs)
-
-    # wrap around environment for rsl-rl
-    ####
-    #if isinstance(env_cfg, ManagerBasedRLEnvCfg):
-    #    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
-    #else:
-    #    print("Incorrect manager type")
-    #    
-
-    
-    
-    #####
-    # get a single env
-    env = UnbatchedEnv(env, agent_key="policy")
-
-    # create runner from rsl-rl
-    runner = OnPolicyRunner(env, agent_cfg, log_dir=log_dir, device=agent_cfg['device'])
-    # write git state to logs
-    # runner.add_git_repo_to_log(__file__)
-
-
-    # dump the configuration into log-directory
-    dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
-    dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
-    dump_pickle(os.path.join(log_dir, "params", "env.pkl"), env_cfg)
-    dump_pickle(os.path.join(log_dir, "params", "agent.pkl"), agent_cfg)
-
-    # run training
-    runner.learn(num_learning_iterations=agent_cfg['max_iterations'])
-
-    # close the simulator
-    env.close()
-
+    runner = OnPolicyRunner(env_name=args.task, train_cfg=train_cfg, log_dir=train_cfg['log_params']['log_dir'], device =train_cfg['device'])
+    runner.learn(num_learning_iterations=train_cfg["max_iterations"])
 
 if __name__ == "__main__":
-    # run the main function
     main()
-    # close sim app
-    simulation_app.close()
+

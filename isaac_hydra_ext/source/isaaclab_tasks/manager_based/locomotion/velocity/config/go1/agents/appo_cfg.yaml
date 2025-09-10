@@ -5,24 +5,23 @@ seed: 42
 algo: appo
 device: cuda:0
 resume: false           # for CLI override
-max_iterations: 1000   # 
+max_iterations: 100   # 
 
-save_model_every: 100
-logger: tensorboard   
-
+ 
 
 
-load_run:
-load_checkpoint:    
-log_dir: runs/appo_go1
+
+#load_run:
+#load_checkpoint:    
+#log_dir: runs
 
   
 
 
 # --- parameters APPO ---
 appo_params:
-  num_workers: 2
-  envs_per_worker: 2
+  num_workers: 1
+  envs_per_worker: 1
   gamma: 0.99
   lam: 0.95
 
@@ -33,36 +32,41 @@ appo_params:
   lr: 0.0003
   entropy_coef: 0.001
   update_epochs: 5
-  batch_size: 512
-  steps_per_env: 128
+  batch_size: 128
+  steps_per_env: 24
 
   kl_treshold: 0.03  
 
 
 models:
-  separate: false
-  policy:
-    class: GaussianMixin
-    clip_actions: false
-    clip_log_std: true
-    min_log_std: -20.0
-    max_log_std: 2.0
-    initial_log_std: 0.0
-    network:
-      - name: net
-        input: STATES
-        layers: [128, 128, 128]
-        activations: elu
-    output: ACTIONS
-  value:
-    class: DeterministicMixin
-    clip_actions: false
-    network:
-      - name: net
-        input: STATES
-        layers: [128, 128, 128]
-        activations: elu
-    output: ONE
+    obs_dim: 235
+    act_dim: 12
+#  separate: false
+#  policy:
+#    class: GaussianMixin
+#    clip_actions: false
+#    clip_log_std: true
+#    min_log_std: -20.0
+#    max_log_std: 2.0
+#    initial_log_std: 0.0
+#    network:
+#      - name: net
+#        input: STATES
+#        layers: [128, 128, 128]
+#        activations: elu
+#    output: ACTIONS
+#  value:
+#    class: DeterministicMixin
+#    clip_actions: false
+#    network:
+#      - name: net
+#        input: STATES
+#        layers: [128, 128, 128]
+#        activations: elu
+#    output: ONE
 
-
+log_params:
+  log_dir: "logs/ppo_run"
+  save_model_every: 10
+  logger: tensorboard  
 
