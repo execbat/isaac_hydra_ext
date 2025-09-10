@@ -73,8 +73,7 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
 
         next_observation, reward, terminated, truncated, _ = envs.step(action)
         next_state_tensor = next_observation['policy']
-        #done_np = np.logical_or(terminated, truncated)
-        #done = torch.as_tensor(done_np, device=device, dtype=torch.bool) 
+        
         terminated_t = torch.as_tensor(terminated, dtype=torch.bool, device=device)
         truncated_t  = torch.as_tensor(truncated,  dtype=torch.bool, device=device)
         done    = terminated_t | truncated_t 
@@ -99,12 +98,9 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
         
 
         states.append(state_tensor)
-        #actions.append(action)
         actions.append(action.detach().cpu())
         log_probs.append(log_prob.detach().cpu())
-        #log_probs.append(log_prob.detach())
-        rewards.append(torch.tensor(reward, dtype=torch.float32, device=device))
-        #dones.append(torch.tensor(done, dtype=torch.float32, device=device))
+        rewards.append(reward.to(dtype=torch.float32, device=device))
         dones.append(done.to(dtype=torch.float32, device=device))
         values.append(value.detach())
         mus.append(mu.detach())
@@ -256,30 +252,34 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
 
 class APPOMultiProcRunner:
     def __init__(self, env_name, train_cfg: dict, log_dir: str | None = None, device: str = "cpu"):
+        from pathlib import Path
+        from datetime import datetime
+        
         self.device = device
         self.cfg = train_cfg
 
         # === log roots ===
         # prefer dir from train(); otherwise fallback/default
-        self.run_root_dir = log_dir
-        if self.run_root_dir is None and "log_params" in self.cfg:
-            self.run_root_dir = self.cfg["log_params"].get("log_dir", None)
-        self.experiment_name = self.cfg["experiment_name"]
-        if self.run_root_dir is None:
-            ts = time.strftime("%Y-%m-%d_%H-%M-%S")
-            self.run_root_dir = os.path.join("experiments", self.experiment_name, ts)
-        os.makedirs(self.run_root_dir, exist_ok=True)
+        base_dir = Path(log_dir) if log_dir else Path(self.cfg.get("log_params", {}).get("log_dir", "logs/ppo_run"))
+        exp_name = self.cfg.get("experiment_name", "run")
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-        # TB under run_root/tb
-        self.tb_dir = os.path.join(self.run_root_dir, "tb")
-        os.makedirs(self.tb_dir, exist_ok=True)
+        # logs/ppo_run/<date-time-experiment_name>
+        self.run_root_dir = base_dir / f"{ts}-{exp_name}"
+    
+        if mp.current_process().name == "MainProcess":
+            (self.run_root_dir / "tb").mkdir(parents=True, exist_ok=True)
+            (self.run_root_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+
+        # directories
+        self.tb_dir = str(self.run_root_dir / "tb")
+        self.ckpt_dir = str(self.run_root_dir / "checkpoints")
+
+        # subdirectories
+        from torch.utils.tensorboard import SummaryWriter
         self.writer = SummaryWriter(log_dir=self.tb_dir)
         print(f"[TB] TensorBoard logs -> {os.path.abspath(self.tb_dir)}")
-
-        # checkpoints under run_root/checkpoints
-        self.ckpt_dir = os.path.join(self.run_root_dir, "checkpoints")
-        os.makedirs(self.ckpt_dir, exist_ok=True)
-        print(f"[CKPT] Checkpoints -> {os.path.abspath(self.ckpt_dir)}")
+        print(f"[CKPT] Checkpoints     -> {os.path.abspath(self.ckpt_dir)}")
 
         # === training params ===
         p = self.cfg["appo_params"]
