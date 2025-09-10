@@ -1,8 +1,0 @@
-kind: isaaclab
-name: Go1Nav-v0         # имя для логов/сохранений
-task:
-  gym_id: Go1Nav-v0     # зарегистрированный gym-id для Go1
-  kwargs:
-    max_episode_steps: 100000
-    render: false
-

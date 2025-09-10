@@ -9,6 +9,56 @@ It lets you launch training via Hydra configs without modifying the trainer.
 
 ---
 
+## APPO at a glance
+
+![APPO multiprocess demo](demo.png)
+
+**Architecture (what runs where):**
+
+- **Main process (GPU)** — holds the **Policy (Actor)** and **Critic**, does optimization and logging.
+- **Workers (CPU)** — `W = num_workers` independent OS processes.  
+  Each worker launches its own headless **Isaac-Lab** vectorized environment with `B = envs_per_worker` envs.
+- **Rollout Buffer (CPU↔GPU boundary)** — a shared “place” where workers drop trajectories and the GPU reads mini-batches.
+
+**Data flow:**
+
+1. Each worker (CPU) collects `T = steps_per_env` steps from **each** of its `B` envs → pushes trajectories to the **Buffer**.
+2. The **Main (GPU)** pulls mini-batches from the Buffer and runs several SGD passes to update the Policy/Critic.
+3. The Main **broadcasts updated weights** back to **every** worker.  
+   Workers do **not** talk to each other; each only talks to the Main/Buffer.
+
+**Sizes per learning iteration:**
+
+- Samples produced per worker: `B × T`.
+- Total rollout size (buffer):  
+  `N_buffer = W × B × T` (number of time–env samples in the Buffer).
+- Mini-batching on the GPU:
+  - `batch_size = M` (from config)
+  - `num_minibatches_per_epoch = ceil(N_buffer / M)`
+  - `total_gradient_steps_per_iteration = update_epochs × num_minibatches_per_epoch`
+
+### Key knobs (from your config)
+
+```yaml
+# Collected on CPU by workers
+steps_per_env: 24        # T, steps per environment before each policy update
+num_workers: 4           # W, how many CPU worker processes
+envs_per_worker: 128     # B, vectorized envs per worker
+
+# Applied on GPU by the main process
+update_epochs: 4         # how many passes over the same Buffer per iteration
+batch_size: 2048         # SGD minibatch size for the Policy/Critic updates
+```
+
+**Intuition:**
+
+- Increase **T** (steps_per_env) → longer rollouts, better advantage estimates, but the policy is “older” by the end of collection.
+- Increase **W** or **B** → bigger `N_buffer` per iteration (more data, more stable gradients, more VRAM/CPU needed).
+- Increase **batch_size** → fewer optimizer steps per epoch but smoother gradients.
+- Increase **update_epochs** → squeeze more learning signal out of the same data; watch KL to avoid over-fitting on on-policy data.
+
+---
+
 ## Features
 
 - **Hydra plugin** that registers this repo’s `conf/` as a config search path.
@@ -50,11 +100,7 @@ python -m isaac_hydra_ext.appo_runner env=isaac_go1_nav experiment.name=local_te
 1) **Start** your Isaac-Sim container (example, adjust to your setup):
 
 ```bash
-docker run --name isaac-sim --rm -it \
-  --gpus all --runtime=nvidia --network=host \
-  -e ACCEPT_EULA=Y -e PRIVACY_CONSENT=Y \
-  -v ~/docker/isaac-sim/documents:/root/Documents:rw \
-  nvcr.io/nvidia/isaac-sim:5.0.0 bash
+docker run --name isaac-sim --rm -it   --gpus all --runtime=nvidia --network=host   -e ACCEPT_EULA=Y -e PRIVACY_CONSENT=Y   -v ~/docker/isaac-sim/documents:/root/Documents:rw   nvcr.io/nvidia/isaac-sim:5.0.0 bash
 ```
 
 2) **Install this extension** inside the container:
@@ -68,50 +114,16 @@ pip install -e /root/isaac_hydra_ext
 3) **Run training**:
 
 ```bash
-python -m isaac_hydra_ext.appo_runner env=isaac_go1_nav experiment.name=docker_test
+./isaaclab.sh -p -m isaac_hydra_ext.scripts.reinforcement_learning.appo.train \
+ --task Isaac-Velocity-Sber-Unitree-Go1-v0 --num_envs 1 --headless 
 ```
-
-You can also call it from the provided script:
-
-```bash
-bash /root/isaac_hydra_ext/scripts/run_isaacsim_docker.sh
-```
-
 ---
 
 ## Configuration
 
-Hydra config groups live under `isaac_hydra_ext/conf`:
-
-- `env/` – environment selection (e.g., `isaac_go1_nav.yaml`, `gym_pendulum.yaml`)
-- `ppo/` – algorithm hyper-parameters
-- `logging/` – loggers, wandb, tensorboard, etc.
-- `checkpoint/` – saving/loading policy
-- `experiment/` – naming, seeds, paths
-- `train_appo.yaml` – top-level defaults / wiring
 
 ### Examples
 
-Run Gym pendulum locally:
-
-```bash
-python -m isaac_hydra_ext.appo_runner env=gym_pendulum experiment.name=pendulum_debug
-```
-
-Override a few params on the fly:
-
-```bash
-python -m isaac_hydra_ext.appo_runner \
-  env=isaac_go1_nav \
-  experiment.name=go1_fast \
-  ppo.num_steps=1024 ppo.batch_size=32768 logging.stdout=true
-```
-
-Select a different experiment preset:
-
-```bash
-python -m isaac_hydra_ext.appo_runner env=isaac_go1_nav experiment=default +seed=0
-```
 
 ---
 

@@ -11,8 +11,8 @@ max_iterations: 1000000   #
 
 # --- parameters APPO ---
 appo_params:
-  num_workers: 4
-  envs_per_worker: 256
+  num_workers: 4       # W
+  envs_per_worker: 128 # B
   gamma: 0.99
   lam: 0.95
 
@@ -22,12 +22,13 @@ appo_params:
 
   lr: 0.00003
   entropy_coef: 0.001
-  update_epochs: 4     # number of updates of the main Policy using data of a single collected buffer of samples. In the main Process
-  batch_size: 512      # batch size of a single update for main Policy. In the main Process
-  steps_per_env: 64    # number of samples collected from a single env before he update
-
+  update_epochs: 4     #     number of updates of the main Policy using data of a single collected buffer of samples. In the main Process
+  batch_size: 2048      #     batch size of a single update for main Policy. In the main Process
+  steps_per_env: 24    # T - number of samples collected from a single env before he update
   kl_treshold: 0.01  
 
+# Buffer size for every update is: W * B * T = 4 * 128 * 24 = 12288
+# Maximal number of unique data taken from buffer during update: batch_size * update_epochs = 2048 * 4 = 8192
 
 models:
     obs_dim: 235
@@ -35,7 +36,7 @@ models:
 
 log_params:
   log_dir: "logs/ppo_run"
-  save_model_every: 1000
+  save_model_every: 100
   logger: tensorboard 
   
   
