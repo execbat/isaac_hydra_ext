@@ -198,15 +198,11 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
     
     envs = make_env()
 
+    appo_cfg = load_cfg_from_registry(env_id.split(":")[-1], "appo_cfg_entry_point")    
+    obs_dim = appo_cfg['models']['obs_dim']
+    act_dim = appo_cfg['models']['act_dim']
 
-    obs_space = getattr(envs, "observation_space")
-    act_space = getattr(envs, "action_space")
-    if isinstance(obs_space, gym.spaces.Dict):
-        obs_space = obs_space.spaces.get("policy", next(iter(obs_space.spaces.values())))
-    if isinstance(act_space, gym.spaces.Dict):
-        act_space = act_space.spaces.get("policy", next(iter(act_space.spaces.values())))
-    obs_dim = int(gym.spaces.flatdim(obs_space))
-    act_dim = int(gym.spaces.flatdim(act_space))
+    print(f"[WORKER {worker_id}] network dimensions: obs_dim {obs_dim}, act_dim {act_dim}", flush=True)
 
     actor = Actor(obs_dim, act_dim)
     actor.load_state_dict(torch.load(io.BytesIO(actor_bytes), map_location=device, weights_only=True))
