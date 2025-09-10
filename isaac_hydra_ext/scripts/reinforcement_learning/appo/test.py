@@ -63,12 +63,6 @@ if args_cli.task is None:
 if args_cli.video:
     args_cli.enable_cameras = True
 
-# For testing we want a visible viewer unless user overrides
-if not getattr(args_cli, "headless", None):
-    args_cli.headless = False
-if not getattr(args_cli, "experience", None):
-    args_cli.real_time = True
-
 # -----------------------------------------------------------------------------
 # Launch Isaac Lab app
 # -----------------------------------------------------------------------------
@@ -238,48 +232,48 @@ obs_np = policy_slice(obs)
 steps = 0
 print("[EVAL] Running with viewer... (Ctrl+C to stop)")
 
-try:
-    while simulation_app.is_running() and steps < args_cli.max_steps:
-        t0 = time.time()
-        with torch.no_grad():
-            mu, std = actor(obs_np)
-            if args_cli.deterministic:
-                action = mu
-            else:
-                dist = torch.distributions.Normal(mu, std)
-                action = dist.sample()
-            if low_t is not None and high_t is not None:
-                action = torch.max(torch.min(action, high_t), low_t)
 
-        next_obs, reward, terminated, truncated, info = env.step(action)        
-        obs_np = policy_slice(next_obs)
-        
-        if not torch.is_tensor(obs_np):
-            obs_t = torch.as_tensor(obs_np, dtype=torch.float32, device=device)
+while simulation_app.is_running():
+    t0 = time.time()
+    with torch.no_grad():
+        mu, std = actor(obs_np)
+        if args_cli.deterministic:
+            action = mu
         else:
-            obs_t = obs_np.to(device).float()
-        if obs_t.ndim == 1:
-            obs_t = obs_t.unsqueeze(0)
+            dist = torch.distributions.Normal(mu, std)
+            action = dist.sample()
+        if low_t is not None and high_t is not None:
+            action = torch.max(torch.min(action, high_t), low_t)
 
-        if args_cli.real_time and isinstance(dt, (int, float)) and dt > 0:
-            sleep_t = dt - (time.time() - t0)
-            if sleep_t > 0:
-                time.sleep(sleep_t)
-
-        steps += 1
+    next_obs, reward, terminated, truncated, info = env.step(action)        
+    obs_np = policy_slice(next_obs)
         
-        if args_cli.video and steps >= args_cli.video_length:
-            break
+    if not torch.is_tensor(obs_np):
+        obs_np = torch.as_tensor(obs_np, dtype=torch.float32, device=device)
+    else:
+        obs_np = obs_np.to(device).float()
+    if obs_np.ndim == 1:
+        obs_np = obs_np.unsqueeze(0)
 
-except KeyboardInterrupt:
-    print("\n[EVAL] Interrupted by user.")
-finally:
-    try:
-        env.close()
-    except Exception:
-        pass
-    try:
-        simulation_app.close()
-    except Exception:
-        pass
-    print("[CLEANUP] Closed Isaac Lab.")
+    if  isinstance(dt, (int, float)) and dt > 0:
+        sleep_t = dt - (time.time() - t0)
+        #print(f'sleep_t {sleep_t}')
+        if sleep_t > 0:
+            time.sleep(sleep_t)
+
+    steps += 1
+        
+    if args_cli.video and steps >= args_cli.video_length:
+        break
+
+
+
+try:
+    env.close()
+except Exception:
+    pass
+try:
+    simulation_app.close()
+except Exception:
+    pass
+print("[CLEANUP] Closed Isaac Lab.")
