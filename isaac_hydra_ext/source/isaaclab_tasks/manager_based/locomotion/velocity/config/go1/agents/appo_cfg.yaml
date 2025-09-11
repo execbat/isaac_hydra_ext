@@ -16,16 +16,16 @@ appo_params:
   gamma: 0.99
   lam: 0.95
 
-  clip_eps_start: 0.2
-  clip_eps_max: 0.2
+  clip_eps_start: 0.3
+  clip_eps_max: 0.3
   clip_eps_min: 0.05
 
-  lr: 0.0003
-  entropy_coef: 0.002
+  lr: 0.003
+  entropy_coef: 0.01
   update_epochs: 4     #     number of updates of the main Policy using data of a single collected buffer of samples. In the main Process
-  batch_size: 4096 #2048      #     batch size of a single update for main Policy. In the main Process
-  steps_per_env: 48    # T - number of samples collected from a single env before he update
-  kl_treshold: 0.02  
+  batch_size: 2048      #     batch size of a single update for main Policy. In the main Process
+  steps_per_env: 32    # T - number of samples collected from a single env before he update
+  kl_treshold: 0.01  
 
 # Buffer size for every update is: W * B * T = 4 * 128 * 24 = 12288
 # Maximal number of unique data taken from buffer during update: batch_size * update_epochs = 2048 * 4 = 8192

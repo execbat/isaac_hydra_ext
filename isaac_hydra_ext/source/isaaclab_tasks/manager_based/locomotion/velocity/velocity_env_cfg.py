@@ -457,7 +457,7 @@ class RewardsCfg:
         func=mdp.feet_air_time,
         weight=-0.125,
         params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"), # reassigned in child cfg
             "command_name": "base_velocity",
             "threshold": 0.5,
         },
@@ -465,11 +465,18 @@ class RewardsCfg:
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*THIGH1"), "threshold": 1.0},
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["trunk"]), "threshold": 1.0},
     )
     # -- optional penalties
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
+    
+    track_lin_vel_xy_mse = RewTerm(
+        func=mdp.track_lin_vel_xy_mse, weight=-2.0, params={"command_name": "base_velocity"}
+    )
+    track_ang_vel_z_mse = RewTerm(
+        func=mdp.track_ang_vel_z_mse, weight=-0.5, params={"command_name": "base_velocity"}
+    )
     
 @configclass
 class MathRewardsCfg:

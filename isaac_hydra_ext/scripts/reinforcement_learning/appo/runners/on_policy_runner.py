@@ -19,7 +19,6 @@ from isaac_hydra_ext.utils import Actor, Critic
 
 
 # ---------- utils ----------
-
 def move_state_dict_to_cpu(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     return {k: v.detach().cpu() for k, v in state_dict.items()}
 
@@ -45,15 +44,15 @@ def compute_gae(rewards: torch.Tensor, values: torch.Tensor, dones: torch.Tensor
         returns[t] = gae + values[t]
     return returns
 
-def combine_batches(all_data: List[Dict[str, torch.Tensor]]) -> Tuple[torch.Tensor, ...]:
-    states     = torch.cat([batch["states"]     for batch in all_data], dim=0)
-    actions    = torch.cat([batch["actions"]    for batch in all_data], dim=0)
-    log_probs  = torch.cat([batch["log_probs"]  for batch in all_data], dim=0)
-    returns    = torch.cat([batch["returns"]    for batch in all_data], dim=0)
-    advantages = torch.cat([batch["advantages"] for batch in all_data], dim=0)
-    mus        = torch.cat([batch["mus"]        for batch in all_data], dim=0)
-    stds       = torch.cat([batch["stds"]       for batch in all_data], dim=0)
-    rewards    = np.mean([batch["reward_sum"]       for batch in all_data])
+def combine_batches(all_data):
+    states     = torch.cat([d["states"]     for d in all_data], dim=0)  # [W*T*B, D]
+    actions    = torch.cat([d["actions"]    for d in all_data], dim=0)  # [W*T*B, A]
+    log_probs  = torch.cat([d["log_probs"]  for d in all_data], dim=0)  # [W*T*B]
+    returns    = torch.cat([d["returns"]    for d in all_data], dim=0)  # [W*T*B]
+    advantages = torch.cat([d["advantages"] for d in all_data], dim=0)  # [W*T*B]
+    mus        = torch.cat([d["mus"]        for d in all_data], dim=0)  # [W*T*B, A]
+    stds       = torch.cat([d["stds"]       for d in all_data], dim=0)  # [W*T*B, A]
+    rewards    = float(np.mean([d["reward_sum"] for d in all_data]))
     return states, actions, log_probs, returns, advantages, mus, stds, rewards
 
 
@@ -74,24 +73,27 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
         next_observation, reward, terminated, truncated, _ = envs.step(action)
         next_state_tensor = next_observation['policy']
         
+        
         terminated_t = torch.as_tensor(terminated, dtype=torch.bool, device=device)
         truncated_t  = torch.as_tensor(truncated,  dtype=torch.bool, device=device)
         done    = terminated_t | truncated_t 
 
-        if done.any().item():
-            if hasattr(envs, "reset_done"):
-                try:
-                    observation, _ = envs.reset_done()
-                    next_state_tensor[done] = observation['policy'][done]
-                except Exception:
-                    # fallback: entire reset
-                    observation, _ = envs.reset()
-                    state_tensor = observation['policy']
-                    next_state_tensor = state_tensor
-            else:
-                observation, _ = envs.reset()
-                state_tensor = observation['policy']
-                next_state_tensor = state_tensor
+        # Commented because Isaac-Sim makes reset the envs which has got DONE by itself. No need extra reset manually.
+        #if done.any().item():
+        #    if hasattr(envs, "reset_done"):
+        #        try:
+        #            observation, _ = envs.reset_done()
+        #            next_state_tensor[done] = observation['policy'][done]
+        #        except Exception:
+        #            # fallback: entire reset
+        #            observation, _ = envs.reset()
+        #            state_tensor = observation['policy']
+        #            next_state_tensor = state_tensor
+        #    else:
+        #        observation, _ = envs.reset()
+        #        state_tensor = observation['policy']
+        #        next_state_tensor = state_tensor
+
 
         value = critic(state_tensor).squeeze(-1)
         
@@ -108,24 +110,39 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
 
         state_tensor = next_state_tensor
 
-    rewards = torch.stack(rewards)
-    values = torch.stack(values)
-    dones = torch.stack(dones)
+    rewards    = torch.stack(rewards)
+    values     = torch.stack(values)
+    dones      = torch.stack(dones)
+    states     = torch.stack(states)      # [T, B, D]
+    actions    = torch.stack(actions)     # [T, B, A]
+    log_probs  = torch.stack(log_probs)   # [T, B]
+    mus        = torch.stack(mus)         # [T, B, A]
+    stds       = torch.stack(stds)        # [T, B, A]    
 
-    returns = compute_gae(rewards, values, dones, gamma, lam)
+    returns = compute_gae(rewards, values, dones, gamma, lam) # [T, B]
     advantages = returns - values
-    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
+    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8) # [T, B]
+    
+    T, B = states.shape[:2]
+    
+    # making 2D/1D
+    states     = states.reshape(T*B, -1).contiguous()          # [T*B, D]
+    actions    = actions.reshape(T*B, -1).contiguous()         # [T*B, A]
+    log_probs  = log_probs.reshape(T*B).contiguous()           # [T*B]
+    returns    = returns.reshape(T*B).contiguous()             # [T*B]
+    advantages = advantages.reshape(T*B).contiguous()          # [T*B]
+    mus        = mus.reshape(T*B, -1).contiguous()             # [T*B, A]
+    stds       = stds.reshape(T*B, -1).contiguous()            # [T*B, A]
+ 
     return {
-        "states": torch.stack(states),
-        "actions": torch.stack(actions),
-        "log_probs": torch.stack(log_probs),
-        "returns": returns,
-        "advantages": advantages,
-        "mus": torch.stack(mus),
-        "stds": torch.stack(stds),
-        #"reward_sum": rewards.sum().item(),
-        "reward_sum": rewards.mean().item(),
+        "states": states.cpu(),
+        "actions": actions.cpu(),
+        "log_probs": log_probs.cpu(),
+        "returns": returns.cpu(),
+        "advantages": advantages.cpu(),
+        "mus": mus.cpu(),
+        "stds": stds.cpu(),
+        "reward_sum": rewards.mean().item(),  
     }
 
 
@@ -133,7 +150,8 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
 
 def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, critic_bytes: bytes,
                              steps_per_env: int, gamma: float, lam: float,
-                             envs_per_worker: int, queue: Queue, model_queue: Queue) -> None:
+                             envs_per_worker: int, queue: Queue, model_queue: Queue,
+                             start_event: mp.Event) -> None:
     # --- headless + CPU-only for workers ---
     os.environ["IS_WORKER"] = "1"
     os.environ["KIT_WINDOWMODE"] = "headless"
@@ -217,6 +235,8 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
 
     try:
         while True:
+            start_event.wait()  # wait for permission from Main process to go to collect samples  
+        
             try:
                 new_actor_bytes, new_critic_bytes = model_queue.get_nowait()
                 actor.load_state_dict(torch.load(io.BytesIO(new_actor_bytes),  map_location=device, weights_only=True))
@@ -358,6 +378,7 @@ class APPOMultiProcRunner:
             pass
 
         print("Number of CPU cores:", mp.cpu_count())
+        self.start_event = mp.Event()   # <- CMD EVENT «GO» to start collect samples for workers	
 
         actor_serialized = serialize_state_dict(move_state_dict_to_cpu(self.actor.state_dict()))
         critic_serialized = serialize_state_dict(move_state_dict_to_cpu(self.critic.state_dict()))
@@ -371,7 +392,8 @@ class APPOMultiProcRunner:
                 args=(
                     i, self.env_name, actor_serialized, critic_serialized,
                     self.steps_per_env, self.gamma, self.lam,
-                    self.envs_per_worker, self.queue, self.model_queues[i]
+                    self.envs_per_worker, self.queue, self.model_queues[i],
+                    self.start_event,
                 ),
                 daemon=False,
             )
@@ -385,14 +407,20 @@ class APPOMultiProcRunner:
             if isinstance(m, dict) and m.get("_hello"):
                 ready.add(m["worker_id"])
                 print(f"[READY] W{m['worker_id']} pid={m['pid']} envs={m['envs']}")
-        # ============================================    
+        # ============================================   
+        print("[ BARRIER ] All workers ready. Releasing start...")
+        self.start_event.set() 
 
         try:
             print("[ TRAINING STARTED ]")
             while self.episode < episodes:
-                all_data = [self.queue.get() for _ in range(self.num_workers)]
- 
+            
+                self.start_event.clear() # block workers next epoch
+            
+                all_data = [self.queue.get() for _ in range(self.num_workers)] # get data from workers
+                
                 states, actions, old_log_probs, returns, advantages, mus, stds, rewards = combine_batches(all_data)
+                # print(f'Episode {self.episode} State shape of received buffer {states.shape}') (16384, 235) with W × B × T = 4 × 128 × 32 = 16384
                 device = self.device
                 states = states.to(device)
                 actions = actions.to(device)
@@ -428,7 +456,7 @@ class APPOMultiProcRunner:
 
                         if kl_div > self.kl_treshold * 1.5:
                             self.clip_eps = max(self.clip_eps * 0.9, self.clip_eps_min)
-                            break #
+                            # break #
                         if kl_div < self.kl_treshold * 0.5:
                             self.clip_eps = min(self.clip_eps * 1.1, self.clip_eps_max)
                             
@@ -451,15 +479,18 @@ class APPOMultiProcRunner:
                 
                 
                 if self.writer:
-                    avg_reward = float(np.mean(self.reward_history[-1]))
-                    self.writer.add_scalar("Rewards/Avg_Reward_10", avg_reward, self.episode)
-                    self.writer.add_scalar("Loss/Actor", actor_loss.item(), self.episode)
-                    self.writer.add_scalar("Loss/Critic", critic_loss.item(), self.episode)
-                    self.writer.add_scalar("Metrics/KL_Div", kl_div.item(), self.episode)
-                    self.writer.add_scalar("Metrics/Entropy", entropy.item(), self.episode)
-                    self.writer.add_scalar("Metrics/Clip_eps", self.clip_eps, self.episode)
-                    if (self.episode + 1) % 10 == 0:                     
-                        print(f"Episode {self.episode + 1}: Avg reward = {avg_reward:.5f}")
+                    try:
+                        avg_reward = float(np.mean(self.reward_history[-1]))
+                        self.writer.add_scalar("Rewards/Avg_Reward_10", avg_reward, self.episode)
+                        self.writer.add_scalar("Loss/Actor", actor_loss.item(), self.episode)
+                        self.writer.add_scalar("Loss/Critic", critic_loss.item(), self.episode)
+                        self.writer.add_scalar("Metrics/KL_Div", kl_div.item(), self.episode)
+                        self.writer.add_scalar("Metrics/Entropy", entropy.item(), self.episode)
+                        self.writer.add_scalar("Metrics/Clip_eps", self.clip_eps, self.episode)
+                        if (self.episode + 1) % 10 == 0:                     
+                            print(f"Episode {self.episode + 1}: Avg reward = {avg_reward:.5f}")
+                    except:
+                        pass        
 
                 # save to run_root/checkpoints
                 if (self.episode + 1) % self.save_model_every == 0:
@@ -499,13 +530,16 @@ class APPOMultiProcRunner:
                             args=(
                                 i, self.env_name, actor_serialized, critic_serialized,
                                 self.steps_per_env, self.gamma, self.lam,
-                                self.envs_per_worker, self.queue, new_q
+                                self.envs_per_worker, self.queue, new_q,
+                                self.start_event
                             ),
                             daemon=False,
                         )
                         p2.start()
                         self.workers[i] = p2
-                # ------------------------------------    
+                # ------------------------------------  
+                
+                self.start_event.set()   # !!! permit workers to collect again  !!!
                     
 
             print("Training finished")

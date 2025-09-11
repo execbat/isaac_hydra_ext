@@ -44,7 +44,7 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
 
         # reduce action scale
-        self.actions.joint_pos.scale = 0.25
+        self.actions.joint_pos.scale = 0.5
 
         # event
         self.events.push_robot = None
@@ -67,16 +67,30 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
 
         # rewards
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.weight = 0.01
+        self.rewards.feet_air_time.params["threshold"] = 0.30 
+        self.rewards.feet_air_time.weight = 0.08     
+        
+
         self.rewards.undesired_contacts = None
-        self.rewards.dof_torques_l2.weight = -0.0002
-        self.rewards.track_lin_vel_xy_exp.weight = 1.5
-        self.rewards.track_ang_vel_z_exp.weight = 0.75
-        self.rewards.dof_acc_l2.weight = -2.5e-7
+        self.rewards.dof_torques_l2.weight = -5e-6 
+        self.rewards.track_lin_vel_xy_exp.weight = 12.0
+        self.rewards.track_ang_vel_z_exp.weight = 3.0
+        self.rewards.dof_acc_l2.weight = -1e-7
+        
+        # penalties
+        self.rewards.action_rate_l2.weight = -0.03
+        
+        self.rewards.flat_orientation_l2.weight = -1.0    
+        self.rewards.dof_pos_limits.weight      = -0.1   
+        
+        self.rewards.lin_vel_z_l2.weight = -0.5
+        self.rewards.ang_vel_xy_l2.weight = -0.3
+        self.rewards.track_lin_vel_xy_mse.weight = -2.0 # penalty for not following desired direction
+        self.rewards.track_ang_vel_z_mse.weight = -1.0 # penalty for not following desired direction
 
         # terminations
         self.terminations.base_contact.params["sensor_cfg"].body_names = "trunk"
-
+        #self.rewards.termination_penalty.weight = 0.0
 
 @configclass
 class UnitreeGo1RoughEnvCfg_PLAY(UnitreeGo1RoughEnvCfg):
