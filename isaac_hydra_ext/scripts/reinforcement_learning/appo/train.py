@@ -75,6 +75,7 @@ def build_parser():
     p.add_argument("--num_envs", type=int, default=None)
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--max_iterations", type=int, default=None)
+    p.add_argument("--resume", type=bool, default=None)
 
     # devices/mode
     p.add_argument("--headless", action="store_true", default=True)
@@ -146,7 +147,7 @@ def main():
         "models": {"obs_dim": None, "act_dim": None},
     }
 
-    # merge YAML (auto-discovery)
+    # merge YAML 
     cfg_path = find_appo_cfg(args.task, args.appo_cfg_path)
     if cfg_path:
         yaml_cfg = load_yaml(cfg_path)
@@ -177,12 +178,12 @@ def main():
     if not train_cfg.get("experiment_name"):
         train_cfg["experiment_name"] = "appo_run"
 
-    # must have model dims now (your YAML has them)
+    
     m = train_cfg.get("models", {})
     if m.get("obs_dim") is None or m.get("act_dim") is None:
         raise ValueError("models.obs_dim and models.act_dim must be provided (e.g. 235/12 for Go1).")
 
-    # import only the runner (it must not import Isaac/Kit at module top)
+    # import only the runner 
     from isaac_hydra_ext.scripts.reinforcement_learning.appo.runners.on_policy_runner import (
         APPOMultiProcRunner as OnPolicyRunner
     )

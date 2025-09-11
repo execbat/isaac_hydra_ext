@@ -133,6 +133,21 @@ def get_action_bounds(env):
     if low is None or high is None:
         return None, None
     return torch.as_tensor(low, dtype=torch.float32), torch.as_tensor(high, dtype=torch.float32)
+    
+def to2d_tensor(x, device):
+  
+    if isinstance(x, dict) and "policy" in x:
+        x = x["policy"]
+
+    if not torch.is_tensor(x):
+        x = torch.as_tensor(x, dtype=FORCE_DTYPE, device=device)
+    else:
+        x = x.to(device=device, dtype=FORCE_DTYPE)
+
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+    return x   
+    
 
 # -----------------------------------------------------------------------------
 # Build env from registry (enable viewer, set num_envs)
@@ -226,43 +241,49 @@ if low_t is not None and high_t is not None:
 dt = env.unwrapped.step_dt
 print(f'dt: {dt}')
 print(f'args_cli.max_steps: {args_cli.max_steps}')
-# reset environment
+
+
+FORCE_DTYPE = torch.float32
+
+# --- reset
 obs, _ = env.reset()
-obs_np = policy_slice(obs)
+obs_t = to2d_tensor(obs, device)  # [1, obs_dim], float32
+
 steps = 0
 print("[EVAL] Running with viewer... (Ctrl+C to stop)")
-
 
 while simulation_app.is_running():
     t0 = time.time()
     with torch.no_grad():
-        mu, std = actor(obs_np)
-        if args_cli.deterministic:
-            action = mu
-        else:
-            dist = torch.distributions.Normal(mu, std)
-            action = dist.sample()
-        if low_t is not None and high_t is not None:
-            action = torch.max(torch.min(action, high_t), low_t)
+        mu, std = actor(obs_t.float())              # [1, 12] float32
 
-    next_obs, reward, terminated, truncated, info = env.step(action)        
-    obs_np = policy_slice(next_obs)
-        
-    if not torch.is_tensor(obs_np):
-        obs_np = torch.as_tensor(obs_np, dtype=torch.float32, device=device)
-    else:
-        obs_np = obs_np.to(device).float()
-    if obs_np.ndim == 1:
-        obs_np = obs_np.unsqueeze(0)
+        dist   = torch.distributions.Normal(mu.float(), std.float())
+        action = dist.sample().to(dtype=FORCE_DTYPE)  # [1, 12] float32
 
-    if  isinstance(dt, (int, float)) and dt > 0:
+        # sanity-check раз в 50 шагов
+        if steps % 50 == 0:
+            print(f"[DBG] obs {tuple(obs_t.shape)} {obs_t.dtype} | "
+                  f"mu {tuple(mu.shape)} {mu.dtype} | "
+                  f"act {tuple(action.shape)} {action.dtype}")
+
+    action_to_env = action
+
+    next_obs, reward, terminated, truncated, info = env.step(action_to_env)
+
+    term = torch.as_tensor(terminated, dtype=torch.bool, device=device)
+    trunc = torch.as_tensor(truncated,  dtype=torch.bool, device=device)
+    done  = term | trunc
+    if done.any().item():
+        print("Done detected:", done.nonzero().squeeze(-1).tolist())
+
+    obs_t = to2d_tensor(next_obs, device)           # [1, obs_dim] float32
+
+    if isinstance(dt, (int, float)) and dt > 0:
         sleep_t = dt - (time.time() - t0)
-        #print(f'sleep_t {sleep_t}')
         if sleep_t > 0:
             time.sleep(sleep_t)
 
     steps += 1
-        
     if args_cli.video and steps >= args_cli.video_length:
         break
 

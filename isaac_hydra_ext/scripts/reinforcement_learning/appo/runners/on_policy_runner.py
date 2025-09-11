@@ -53,7 +53,7 @@ def combine_batches(all_data: List[Dict[str, torch.Tensor]]) -> Tuple[torch.Tens
     advantages = torch.cat([batch["advantages"] for batch in all_data], dim=0)
     mus        = torch.cat([batch["mus"]        for batch in all_data], dim=0)
     stds       = torch.cat([batch["stds"]       for batch in all_data], dim=0)
-    rewards    = sum([batch["reward_sum"]       for batch in all_data])
+    rewards    = np.mean([batch["reward_sum"]       for batch in all_data])
     return states, actions, log_probs, returns, advantages, mus, stds, rewards
 
 
@@ -124,7 +124,8 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
         "advantages": advantages,
         "mus": torch.stack(mus),
         "stds": torch.stack(stds),
-        "reward_sum": rewards.sum().item(),
+        #"reward_sum": rewards.sum().item(),
+        "reward_sum": rewards.mean().item(),
     }
 
 
@@ -211,6 +212,8 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
     critic.load_state_dict(torch.load(io.BytesIO(critic_bytes), map_location=device, weights_only=True))
     critic.eval()
 
+    # say Hello to the main process
+    queue.put({"_hello": True, "worker_id": worker_id, "pid": os.getpid(), "envs": int(envs_per_worker)})
 
     try:
         while True:
@@ -374,12 +377,21 @@ class APPOMultiProcRunner:
             )
             p.start()
             self.workers.append(p)
+            
+        # === wait for all workers alive ===
+        ready = set()
+        while len(ready) < self.num_workers:
+            m = self.queue.get()
+            if isinstance(m, dict) and m.get("_hello"):
+                ready.add(m["worker_id"])
+                print(f"[READY] W{m['worker_id']} pid={m['pid']} envs={m['envs']}")
+        # ============================================    
 
         try:
-            print("Training started")
+            print("[ TRAINING STARTED ]")
             while self.episode < episodes:
                 all_data = [self.queue.get() for _ in range(self.num_workers)]
-
+ 
                 states, actions, old_log_probs, returns, advantages, mus, stds, rewards = combine_batches(all_data)
                 device = self.device
                 states = states.to(device)
@@ -416,8 +428,10 @@ class APPOMultiProcRunner:
 
                         if kl_div > self.kl_treshold * 1.5:
                             self.clip_eps = max(self.clip_eps * 0.9, self.clip_eps_min)
+                            break #
                         if kl_div < self.kl_treshold * 0.5:
                             self.clip_eps = min(self.clip_eps * 1.1, self.clip_eps_max)
+                            
 
                         ratio = torch.exp(new_log_probs - batch_old_log_probs)
                         surr1 = ratio * batch_advantages
@@ -425,24 +439,27 @@ class APPOMultiProcRunner:
                         actor_loss = -torch.min(surr1, surr2).mean() - self.entropy_coef * entropy
                         critic_loss = nn.MSELoss()(self.critic(batch_states).squeeze(-1), batch_returns)
 
-                        self.actor_optim.zero_grad()
+                        self.actor_optim.zero_grad(set_to_none=True) #
                         actor_loss.backward()
+                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5) #
                         self.actor_optim.step()
 
-                        self.critic_optim.zero_grad()
+                        self.critic_optim.zero_grad(set_to_none=True) #
                         critic_loss.backward()
+                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5) #
                         self.critic_optim.step()
-
+                
+                
                 if self.writer:
+                    avg_reward = float(np.mean(self.reward_history[-1]))
+                    self.writer.add_scalar("Rewards/Avg_Reward_10", avg_reward, self.episode)
                     self.writer.add_scalar("Loss/Actor", actor_loss.item(), self.episode)
                     self.writer.add_scalar("Loss/Critic", critic_loss.item(), self.episode)
                     self.writer.add_scalar("Metrics/KL_Div", kl_div.item(), self.episode)
                     self.writer.add_scalar("Metrics/Entropy", entropy.item(), self.episode)
                     self.writer.add_scalar("Metrics/Clip_eps", self.clip_eps, self.episode)
-                    if (self.episode + 1) % 10 == 0:
-                        avg_reward = float(np.mean(self.reward_history[-10:]))
-                        self.writer.add_scalar("Rewards/Avg_Reward_10", avg_reward, self.episode)
-                        print(f"Episode {self.episode + 1}: Avg reward = {avg_reward:.2f}")
+                    if (self.episode + 1) % 10 == 0:                     
+                        print(f"Episode {self.episode + 1}: Avg reward = {avg_reward:.5f}")
 
                 # save to run_root/checkpoints
                 if (self.episode + 1) % self.save_model_every == 0:
@@ -453,12 +470,43 @@ class APPOMultiProcRunner:
                     print(f"[CKPT] Saved: {actor_path} | {critic_path}")
 
                 self.episode += 1
+                
+                
 
                 # broadcast updated weights
                 actor_serialized = serialize_state_dict(move_state_dict_to_cpu(self.actor.state_dict()))
                 critic_serialized = serialize_state_dict(move_state_dict_to_cpu(self.critic.state_dict()))
+                
+                # send new weights to workers
                 for q in self.model_queues:
                     q.put((actor_serialized, critic_serialized))
+                    
+                # --- resurrection of the dead workers ---
+                for i, p in enumerate(self.workers):
+                    if not p.is_alive():
+                        exitcode = p.exitcode
+                        print(f"[WARN] worker {i} died (exit={exitcode}). Respawning...")
+                        try:
+                            p.join(timeout=0.1)
+                        except Exception:
+                            pass
+                        new_q = mp.Queue()
+                        self.model_queues[i] = new_q
+
+                        # send actual weights with new queue
+                        p2 = mp.Process(
+                            target=_worker_collect_and_push,
+                            args=(
+                                i, self.env_name, actor_serialized, critic_serialized,
+                                self.steps_per_env, self.gamma, self.lam,
+                                self.envs_per_worker, self.queue, new_q
+                            ),
+                            daemon=False,
+                        )
+                        p2.start()
+                        self.workers[i] = p2
+                # ------------------------------------    
+                    
 
             print("Training finished")
         finally:
