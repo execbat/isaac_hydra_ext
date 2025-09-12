@@ -447,7 +447,7 @@ class RewardsCfg:
     
     
     # -- penalties
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-200.0)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=0.0)
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-10.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-1.0)
     dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
@@ -472,10 +472,10 @@ class RewardsCfg:
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
     
     track_lin_vel_xy_mse = RewTerm(
-        func=mdp.track_lin_vel_xy_mse, weight=-2.0, params={"command_name": "base_velocity"}
+        func=mdp.track_lin_vel_xy_mse, weight=-3.0, params={"command_name": "base_velocity"}
     )
     track_ang_vel_z_mse = RewTerm(
-        func=mdp.track_ang_vel_z_mse, weight=-0.5, params={"command_name": "base_velocity"}
+        func=mdp.track_ang_vel_z_mse, weight=-0.8, params={"command_name": "base_velocity"}
     )
     
 @configclass

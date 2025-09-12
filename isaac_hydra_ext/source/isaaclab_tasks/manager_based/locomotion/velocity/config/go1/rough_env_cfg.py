@@ -80,13 +80,13 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # penalties
         self.rewards.action_rate_l2.weight = -0.03
         
-        self.rewards.flat_orientation_l2.weight = -1.0    
+        self.rewards.flat_orientation_l2.weight = -2.0    
         self.rewards.dof_pos_limits.weight      = -0.1   
         
         self.rewards.lin_vel_z_l2.weight = -0.5
         self.rewards.ang_vel_xy_l2.weight = -0.3
-        self.rewards.track_lin_vel_xy_mse.weight = -2.0 # penalty for not following desired direction
-        self.rewards.track_ang_vel_z_mse.weight = -1.0 # penalty for not following desired direction
+        self.rewards.track_lin_vel_xy_mse.weight = -3.0 # penalty for not following desired direction
+        self.rewards.track_ang_vel_z_mse.weight = -1.5 # penalty for not following desired direction
 
         # terminations
         self.terminations.base_contact.params["sensor_cfg"].body_names = "trunk"

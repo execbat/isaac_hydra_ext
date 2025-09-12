@@ -165,6 +165,9 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
 
     torch.set_num_threads(1)
     device = torch.device("cpu")
+    
+    os.environ["CARB_LOG_LEVEL"] = "error"   # suppress Warning from PhysX
+    os.environ["OMNI_LOG_LEVEL"] = "error"   # suppress Warning from PhysX
 
     from isaaclab.app import AppLauncher
     app_launcher = AppLauncher(
@@ -173,7 +176,14 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
         experience="isaaclab.python.headless.kit" 
     )
     simulation_app = app_launcher.app
-    print(f"[WORKER {worker_id}] Headless Kit up (CPU)", flush=True)
+    import carb
+    try:
+        carb.log.set_default_level(carb.log.Severity.ERROR)
+        carb.log.set_channel_level("omni.physx", carb.log.Severity.ERROR)
+        carb.log.set_channel_level("omni.physx.plugin", carb.log.Severity.ERROR)
+    except Exception as e:
+        print("[LOG] couldn't set carb levels:", e)
+        print(f"[WORKER {worker_id}] Headless Kit up (CPU)", flush=True)
 
     import gymnasium as gym
     from isaac_hydra_ext.utils import Actor, Critic
@@ -408,8 +418,16 @@ class APPOMultiProcRunner:
                 ready.add(m["worker_id"])
                 print(f"[READY] W{m['worker_id']} pid={m['pid']} envs={m['envs']}")
         # ============================================   
-        print("[ BARRIER ] All workers ready. Releasing start...")
-        self.start_event.set() 
+        # 10 second cool down to allow all Isaac-Sim envs to be loaded completely
+        print("[ BARRIER ] All workers ready. Releasing start in 10 seconds ...")
+        time.sleep(7.0)
+        print("3")
+        time.sleep(1.0)
+        print("2")
+        time.sleep(1.0)
+        print("1")
+        time.sleep(1.0)
+        self.start_event.set() # permission to workers to start collect samples
 
         try:
             print("[ TRAINING STARTED ]")
@@ -418,6 +436,8 @@ class APPOMultiProcRunner:
                 self.start_event.clear() # block workers next epoch
             
                 all_data = [self.queue.get() for _ in range(self.num_workers)] # get data from workers
+                
+                
                 
                 states, actions, old_log_probs, returns, advantages, mus, stds, rewards = combine_batches(all_data)
                 # print(f'Episode {self.episode} State shape of received buffer {states.shape}') (16384, 235) with W × B × T = 4 × 128 × 32 = 16384
@@ -455,10 +475,13 @@ class APPOMultiProcRunner:
                             kl_div = torch.distributions.kl_divergence(old_dist, dist).sum(dim=-1).mean()
 
                         if kl_div > self.kl_treshold * 1.5:
-                            self.clip_eps = max(self.clip_eps * 0.9, self.clip_eps_min)
+                            self.clip_eps = max(self.clip_eps * 0.999, self.clip_eps_min)
+                            self.lr = max(self.lr * 0.99, 5e-5)
+                            
                             # break #
-                        if kl_div < self.kl_treshold * 0.5:
-                            self.clip_eps = min(self.clip_eps * 1.1, self.clip_eps_max)
+                        if kl_div < self.kl_treshold * 0.66:
+                            self.clip_eps = min(self.clip_eps * 1.001, self.clip_eps_max)
+                            self.lr = min(self.lr * 1.01, 5e-3)
                             
 
                         ratio = torch.exp(new_log_probs - batch_old_log_probs)
@@ -469,12 +492,12 @@ class APPOMultiProcRunner:
 
                         self.actor_optim.zero_grad(set_to_none=True) #
                         actor_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5) #
+                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.8) # 0.5
                         self.actor_optim.step()
 
                         self.critic_optim.zero_grad(set_to_none=True) #
                         critic_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5) #
+                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.5) # 0.5
                         self.critic_optim.step()
                 
                 
@@ -485,6 +508,7 @@ class APPOMultiProcRunner:
                         self.writer.add_scalar("Loss/Actor", actor_loss.item(), self.episode)
                         self.writer.add_scalar("Loss/Critic", critic_loss.item(), self.episode)
                         self.writer.add_scalar("Metrics/KL_Div", kl_div.item(), self.episode)
+                        self.writer.add_scalar("Metrics/LR", self.lr, self.episode)
                         self.writer.add_scalar("Metrics/Entropy", entropy.item(), self.episode)
                         self.writer.add_scalar("Metrics/Clip_eps", self.clip_eps, self.episode)
                         if (self.episode + 1) % 10 == 0:                     
