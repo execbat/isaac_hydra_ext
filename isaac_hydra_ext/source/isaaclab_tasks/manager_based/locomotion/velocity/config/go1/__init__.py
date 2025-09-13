@@ -6,6 +6,7 @@
 import gymnasium as gym
 
 from . import agents
+from . import env_scene
 
 ##
 # Register Gym environments.

@@ -26,6 +26,8 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs.mdp.curriculums import modify_env_param
 
+from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import ObstacklesSceneCfg, ChaseCommandsCfg, ChaseObservationsCfg
+
 
 ##
 # Pre-defined configs
@@ -437,11 +439,11 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     # -- task
-    track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=10.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+    track_lin_vel_xy_exp_custom = RewTerm(
+        func=mdp.track_lin_vel_xy_exp_custom, weight=10.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
-    track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=5.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+    track_ang_vel_z_exp_custom = RewTerm(
+        func=mdp.track_ang_vel_z_exp_custom, weight=5.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     
     
@@ -471,12 +473,12 @@ class RewardsCfg:
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
     
-    track_lin_vel_xy_mse = RewTerm(
-        func=mdp.track_lin_vel_xy_mse, weight=-3.0, params={"command_name": "base_velocity"}
-    )
-    track_ang_vel_z_mse = RewTerm(
-        func=mdp.track_ang_vel_z_mse, weight=-0.8, params={"command_name": "base_velocity"}
-    )
+#    track_lin_vel_xy_mse = RewTerm(
+#        func=mdp.track_lin_vel_xy_mse, weight=-3.0, params={"command_name": "base_velocity"}
+#    )
+#    track_ang_vel_z_mse = RewTerm(
+#        func=mdp.track_ang_vel_z_mse, weight=-0.8, params={"command_name": "base_velocity"}
+#    )
     
 @configclass
 class MathRewardsCfg:
@@ -1225,11 +1227,11 @@ class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the locomotion velocity-tracking environment."""
 
     # Scene settings
-    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
+    scene: MySceneCfg = ObstacklesSceneCfg(num_envs=4096, env_spacing=2.5)
     # Basic settings
-    observations: ObservationsCfg = ObservationsCfg()
+    observations: ObservationsCfg = ChaseObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = CommandsCfg()
+    commands: CommandsCfg = ChaseCommandsCfg()
     # MDP settings
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
