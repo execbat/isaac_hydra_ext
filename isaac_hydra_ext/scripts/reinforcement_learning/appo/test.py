@@ -153,37 +153,38 @@ def to2d_tensor(x, device):
 # Build env from registry (enable viewer, set num_envs)
 # -----------------------------------------------------------------------------
 
-try:
-    # Ensure task registry is loaded
-    import isaac_hydra_ext.source.isaaclab_tasks  # noqa: F401
-    import isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1
-    from isaac_hydra_ext.source.isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
+
+# Ensure task registry is loaded
+import isaac_hydra_ext.source.isaaclab_tasks  # noqa: F401
+import isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1
+from isaac_hydra_ext.source.isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
     
 
-    env_key = args_cli.task.split(":")[-1]
-    env_cfg = load_cfg_from_registry(env_key, "env_cfg_entry_point")
+env_key = args_cli.task.split(":")[-1]
+env_cfg = load_cfg_from_registry(env_key, "env_cfg_entry_point")
+    
 
-    if hasattr(env_cfg, "viewer") and hasattr(env_cfg.viewer, "enable"):
-        env_cfg.viewer.enable = True
-    if hasattr(env_cfg, "scene") and hasattr(env_cfg.scene, "num_envs"):
-        env_cfg.scene.num_envs = int(max(1, args_cli.num_envs))
+if hasattr(env_cfg, "viewer") and hasattr(env_cfg.viewer, "enable"):
+    env_cfg.viewer.enable = True
+if hasattr(env_cfg, "scene") and hasattr(env_cfg.scene, "num_envs"):
+    env_cfg.scene.num_envs = int(max(1, args_cli.num_envs))
 
-    if torch.cuda.is_available() and hasattr(env_cfg, "sim"):
-        try:
-            env_cfg.sim.device = "cuda:0"
-            if hasattr(env_cfg.sim, "use_gpu"):
-                env_cfg.sim.use_gpu = True
-            if hasattr(env_cfg.sim, "use_gpu_pipeline"):
-                env_cfg.sim.use_gpu_pipeline = True
-        except Exception:
-            pass
+if torch.cuda.is_available() and hasattr(env_cfg, "sim"):
+    try:
+        env_cfg.sim.device = "cuda:0"
+        if hasattr(env_cfg.sim, "use_gpu"):
+            env_cfg.sim.use_gpu = True
+        if hasattr(env_cfg.sim, "use_gpu_pipeline"):
+            env_cfg.sim.use_gpu_pipeline = True
+    except Exception:
+        pass
 
     render_mode = "rgb_array" if args_cli.video else "human"
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode=render_mode)
-except Exception as e:
-    print(f"[WARN] Failed to build env from registry ({e}). Falling back to gym.make defaults.")
-    render_mode = "rgb_array" if args_cli.video else "human"
-    env = gym.make(args_cli.task, render_mode=render_mode)
+#except Exception as e:
+#    print(f"[WARN] Failed to build env from registry ({e}). Falling back to gym.make defaults.")
+#    render_mode = "rgb_array" if args_cli.video else "human"
+#    env = gym.make(args_cli.task, render_mode=render_mode)
 
 # If recording video, wrap env
 if args_cli.video:

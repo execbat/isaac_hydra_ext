@@ -26,7 +26,7 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs.mdp.curriculums import modify_env_param
 
-from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import ObstacklesSceneCfg, ChaseCommandsCfg, ChaseObservationsCfg
+from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import ObstacklesSceneCfg, ChaseCommandsCfg, ChaseObservationsCfg, ChaseTerminationsCfg, ChaseEventCfg
 
 
 ##
@@ -1234,8 +1234,8 @@ class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
     commands: CommandsCfg = ChaseCommandsCfg()
     # MDP settings
     rewards: RewardsCfg = RewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    events: EventCfg = EventCfg()
+    terminations: TerminationsCfg = ChaseTerminationsCfg()
+    events: EventCfg = ChaseEventCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):

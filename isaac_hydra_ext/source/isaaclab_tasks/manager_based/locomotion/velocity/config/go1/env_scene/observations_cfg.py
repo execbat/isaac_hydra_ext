@@ -4,6 +4,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 from isaaclab.managers import SceneEntityCfg
 from .commands import commands_towards_target
+from isaaclab.managers import ObservationTermCfg as ObsTerm
 
 @configclass
 class ChaseObservationsCfg:

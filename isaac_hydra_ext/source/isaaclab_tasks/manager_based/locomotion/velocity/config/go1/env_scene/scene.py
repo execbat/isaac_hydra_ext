@@ -1,9 +1,9 @@
 import math
-from dataclasses import MISSING
+from dataclasses import MISSING, field
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
-from isaaclab.envs import ManagerBasedRLEnvCfg #, MathManagerBasedRLEnvCfg, MathManagerBasedRLEnv, MathTeleopManagerBasedRLEnvCfg, MathTeleopManagerBasedRLEnv
+from isaaclab.envs import ManagerBasedRLEnvCfg 
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
@@ -22,7 +22,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs.mdp.curriculums import modify_env_param
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 
-from isaaclab.assets import RigidObjectCfg
+from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
 
 @configclass
 class ObstacklesSceneCfg(InteractiveSceneCfg):
@@ -69,9 +69,10 @@ class ObstacklesSceneCfg(InteractiveSceneCfg):
         ),
     )
     
-    target: RigidObjectCfg = MISSING
     
-    obstacles: RigidObjectCfg = MISSING
+    target: RigidObjectCfg = MISSING
+    obstacles: RigidObjectCollectionCfg = MISSING
+
     
     
     

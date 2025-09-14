@@ -6,12 +6,15 @@
 from isaaclab.utils import configclass
 
 from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg
-import isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene 
+from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import TARGET_MARKER, OBSTACLE_CYL
 ##
 # Pre-defined configs
 ##
 from isaaclab_assets.robots.unitree import UNITREE_GO1_CFG  # isort: skip
+from dataclasses import MISSING
+from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
 
+MAX_OBS = 16
 
 @configclass
 class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
@@ -44,10 +47,22 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_range = (0.01, 0.06)
         self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
 
-        self.scene["target"] = TARGET_MARKER.replace(prim_path="{ENV_REGEX_NS}/Target")
-        self.scene["obstacles"] = OBSTACLE_CYL.replace(prim_path="{ENV_REGEX_NS}/Obstacles/obst_*")
 
+        # additional items
+        self.scene.target = TARGET_MARKER.replace(
+            prim_path="{ENV_REGEX_NS}/Target",
+            spawn=TARGET_MARKER.spawn.replace(copy_from_source=False), 
+        )
 
+        objs = {}
+        for i in range(MAX_OBS):
+            name = f"obst_{i:02d}"
+            objs[name] = OBSTACLE_CYL.replace(
+                prim_path=f"{{ENV_REGEX_NS}}/{name}",               
+                spawn=OBSTACLE_CYL.spawn.replace(copy_from_source=False),
+            )
+
+        self.scene.obstacles = RigidObjectCollectionCfg(rigid_objects=objs)
 
 
 
@@ -100,12 +115,10 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         #self.rewards.track_ang_vel_z_mse.weight = -1.5 # penalty for not following desired direction
 
         # terminations
-        self.terminations.base_contact.params["sensor_cfg"].body_names = "trunk"
-        self.rewards.termination_penalty.weight = -10.0
+        #self.terminations.base_contact.params["sensor_cfg"].body_names = "trunk"
+        #self.rewards.termination_penalty.weight = -10.0
         
-        def _reset_idx(self, env_ids: torch.Tensor):
-            super()._reset_idx(env_ids)
-            sample_target_and_obstacles(self, env_ids)        
+   
 
 @configclass
 class UnitreeGo1RoughEnvCfg_PLAY(UnitreeGo1RoughEnvCfg):
@@ -115,7 +128,7 @@ class UnitreeGo1RoughEnvCfg_PLAY(UnitreeGo1RoughEnvCfg):
         
         self.decimation = 4 
         self.sim.dt =  0.005
-        self.sim.render_interval = self.decimation
+
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
@@ -145,4 +158,4 @@ class UnitreeGo1RoughEnvCfg_PLAY(UnitreeGo1RoughEnvCfg):
         self.events.base_external_force_torque = None
         self.events.push_robot = None
         
-        self.terminations.base_contact.params["sensor_cfg"].body_names = []
+        #self.terminations.base_contact.params["sensor_cfg"].body_names = []

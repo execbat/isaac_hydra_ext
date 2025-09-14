@@ -3,9 +3,11 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-from scene import ObstacklesSceneCfg
-from objects import TARGET_MARKER, OBSTACLE_CYL
-from commands_cfg import ChaseCommandsCfg
-from commands import *
-from observations_cfg import ChaseObservationsCfg
-from object_random_spawner import *
+from .scene import ObstacklesSceneCfg
+from .objects import TARGET_MARKER, OBSTACLE_CYL
+from .commands_cfg import ChaseCommandsCfg
+from .commands import *
+from .observations_cfg import ChaseObservationsCfg
+from .events import *
+from .termination_cfg import ChaseTerminationsCfg
+from .event_cfg import ChaseEventCfg

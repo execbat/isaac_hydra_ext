@@ -1,5 +1,6 @@
 from isaaclab.utils import configclass
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+import math
 
 @configclass
 class ChaseCommandsCfg:

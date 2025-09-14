@@ -11,8 +11,8 @@ max_iterations: 1000000   #
 
 # --- parameters APPO ---
 appo_params:
-  num_workers: 4       # W
-  envs_per_worker: 128 # B
+  num_workers: 1 # 4       # W
+  envs_per_worker: 1 # 128 # B
   gamma: 0.99
   lam: 0.95
 
