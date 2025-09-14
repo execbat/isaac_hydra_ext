@@ -14,7 +14,7 @@ from isaaclab_assets.robots.unitree import UNITREE_GO1_CFG  # isort: skip
 from dataclasses import MISSING
 from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
 
-MAX_OBS = 16
+MAX_OBS = 40
 
 @configclass
 class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
@@ -95,11 +95,14 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.feet_air_time.weight = 0.08     
         
 
-        self.rewards.undesired_contacts = None
+        #self.rewards.undesired_contacts = None
+        self.rewards.undesired_contacts.weight = -10.0
         self.rewards.dof_torques_l2.weight = -5e-6 
         
-        self.rewards.track_lin_vel_xy_exp_custom.weight = 12.0
-        self.rewards.track_ang_vel_z_exp_custom.weight = 3.0
+        #self.rewards.track_lin_vel_xy_exp_custom.weight = 12.0
+        #self.rewards.track_ang_vel_z_exp_custom.weight = 3.0
+        self.rewards.track_vel_exp_product.weight = 10
+        self.rewards.progress_to_target.weight = 10.0 
         
         self.rewards.dof_acc_l2.weight = -1e-7
         
@@ -111,6 +114,8 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         
         self.rewards.lin_vel_z_l2.weight = -0.5
         self.rewards.ang_vel_xy_l2.weight = -0.3
+         
+        
         #self.rewards.track_lin_vel_xy_mse.weight = -3.0 # penalty for not following desired direction
         #self.rewards.track_ang_vel_z_mse.weight = -1.5 # penalty for not following desired direction
 

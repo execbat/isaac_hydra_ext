@@ -81,13 +81,13 @@ class ChaseEventCfg:
     spawn_target_on_reset = EventTerm(
         func=respawn_target, 
         mode="reset",
-        params={"r_min": 2.0, "r_max": 6.0, "z": 0.05},
+        params={"r_min": 2.0, "r_max": 8.0, "z": 0.05},
     )
 
     spawn_obstacles_on_reset = EventTerm(
         func=spawn_obstacles_at_reset,
         mode="reset",
-        params={"num_obstacles": (6, 10), "r_max": 6.5, "keepout_robot": 0.8, "keepout_goal": 0.8},
+        params={"num_obstacles": (40, 40), "r_max": 10.0, "keepout_robot": 0.8, "keepout_goal": 0.8},
     )
 
     # interval

@@ -25,7 +25,7 @@ TARGET_MARKER = RigidObjectCfg(
 OBSTACLE_CYL = RigidObjectCfg(
     prim_path="{ENV_REGEX_NS}/Obstacles/obst_00",   
     spawn=CylinderCfg(
-        radius=0.12, height=0.60,
+        radius=0.32, height=1.00,
         rigid_props=RigidBodyPropertiesCfg(kinematic_enabled=True, disable_gravity=True),
         mass_props=MassPropertiesCfg(mass=1.0),
         collision_props=CollisionPropertiesCfg(),  

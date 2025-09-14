@@ -439,14 +439,28 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     # -- task
-    track_lin_vel_xy_exp_custom = RewTerm(
-        func=mdp.track_lin_vel_xy_exp_custom, weight=10.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
-    )
-    track_ang_vel_z_exp_custom = RewTerm(
-        func=mdp.track_ang_vel_z_exp_custom, weight=5.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+    #track_lin_vel_xy_exp_custom = RewTerm(
+    #    func=mdp.track_lin_vel_xy_exp_custom, weight=10.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+    #)
+    #track_ang_vel_z_exp_custom = RewTerm(
+    #    func=mdp.track_ang_vel_z_exp_custom, weight=5.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+    #)
+    track_vel_exp_product = RewTerm(
+        func=mdp.track_lin_ang_vel_exp_product,
+        weight=10.0,  
+        params=dict(
+            command_name="base_velocity",
+            std=math.sqrt(0.25),
+        ),
     )
     
+    progress_to_target = RewTerm(
+        func=mdp.progress_towards_target,
+        weight=10.0, 
+        params={"scale": 1.0, "clamp": 0.5, "stop_radius": 0.35, "near_bonus": 100.0},
+    )
     
+
     
     # -- penalties
     termination_penalty = RewTerm(func=mdp.is_terminated, weight=0.0)
@@ -466,7 +480,7 @@ class RewardsCfg:
     )
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-1.0,
+        weight=-10.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["trunk"]), "threshold": 1.0},
     )
     # -- optional penalties
