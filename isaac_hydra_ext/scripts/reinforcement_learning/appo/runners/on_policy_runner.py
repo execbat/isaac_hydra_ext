@@ -33,14 +33,26 @@ def get_latest_model(folder_path: str, key: str = "actor") -> str | None:
         return None
     return max([os.path.join(folder_path, f) for f in files], key=os.path.getctime)
 
-def compute_gae(rewards: torch.Tensor, values: torch.Tensor, dones: torch.Tensor,
-                gamma: float, lam: float) -> torch.Tensor:
-    values = torch.cat([values, torch.zeros_like(values[0:1])], dim=0)
-    deltas = rewards + gamma * values[1:] * (1 - dones) - values[:-1]
-    returns = torch.zeros_like(deltas)
-    gae = 0
-    for t in reversed(range(len(deltas))):
-        gae = deltas[t] + gamma * lam * (1 - dones[t]) * gae
+#def compute_gae(rewards: torch.Tensor, values: torch.Tensor, dones: torch.Tensor,
+#                gamma: float, lam: float) -> torch.Tensor:
+#    values = torch.cat([values, torch.zeros_like(values[0:1])], dim=0)
+#    deltas = rewards + gamma * values[1:] * (1 - dones) - values[:-1]
+#    returns = torch.zeros_like(deltas)
+#    gae = 0
+#    for t in reversed(range(len(deltas))):
+#        gae = deltas[t] + gamma * lam * (1 - dones[t]) * gae
+#        returns[t] = gae + values[t]
+#    return returns
+
+def compute_gae(rewards, values, dones, gamma, lam, last_value):
+    # rewards, values, dones: [T, B]
+    T, B = rewards.shape
+    returns = torch.zeros_like(rewards)
+    gae = torch.zeros(B, device=rewards.device)
+    for t in reversed(range(T)):
+        next_v = last_value if t == T - 1 else values[t + 1]
+        delta = rewards[t] + gamma * next_v * (1.0 - dones[t]) - values[t]
+        gae = delta + gamma * lam * (1.0 - dones[t]) * gae
         returns[t] = gae + values[t]
     return returns
 
@@ -52,8 +64,9 @@ def combine_batches(all_data):
     advantages = torch.cat([d["advantages"] for d in all_data], dim=0)  # [W*T*B]
     mus        = torch.cat([d["mus"]        for d in all_data], dim=0)  # [W*T*B, A]
     stds       = torch.cat([d["stds"]       for d in all_data], dim=0)  # [W*T*B, A]
+    values     = torch.cat([d["values"]     for d in all_data], dim=0)
     rewards    = float(np.mean([d["reward_sum"] for d in all_data]))
-    return states, actions, log_probs, returns, advantages, mus, stds, rewards
+    return states, actions, log_probs, returns, advantages, mus, stds, rewards, values
 
 
 def collect_samples(envs, actor, critic, gamma: float, lam: float,
@@ -67,8 +80,13 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
         #state_tensor = torch.tensor(state, dtype=torch.float32, device=device)
         mu, std = actor(state_tensor)
         dist = torch.distributions.Normal(mu, std)
-        action = dist.sample()
-        log_prob = dist.log_prob(action).sum(-1)
+        #action = dist.sample()
+        raw_action = dist.rsample()
+        squashed = torch.tanh(raw_action)
+        #log_prob = dist.log_prob(action).sum(-1)
+        action = squashed
+        
+        log_prob = dist.log_prob(raw_action).sum(-1) - torch.sum(torch.log(1 - squashed.pow(2) + 1e-6), dim=-1)
 
         next_observation, reward, terminated, truncated, _ = envs.step(action)
         next_state_tensor = next_observation['policy']
@@ -76,7 +94,7 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
         
         terminated_t = torch.as_tensor(terminated, dtype=torch.bool, device=device)
         truncated_t  = torch.as_tensor(truncated,  dtype=torch.bool, device=device)
-        done    = terminated_t | truncated_t 
+        done    = terminated_t #| truncated_t 
 
         # Commented because Isaac-Sim makes reset the envs which has got DONE by itself. No need extra reset manually.
         #if done.any().item():
@@ -118,14 +136,19 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
     log_probs  = torch.stack(log_probs)   # [T, B]
     mus        = torch.stack(mus)         # [T, B, A]
     stds       = torch.stack(stds)        # [T, B, A]    
+    
+    with torch.no_grad():
+        last_value = critic(state_tensor).squeeze(-1).detach()
+    returns = compute_gae(rewards, values, dones, gamma, lam, last_value)
 
-    returns = compute_gae(rewards, values, dones, gamma, lam) # [T, B]
+    #returns = compute_gae(rewards, values, dones, gamma, lam) # [T, B]
     advantages = returns - values
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8) # [T, B]
     
     T, B = states.shape[:2]
     
     # making 2D/1D
+    values_flat = values.reshape(T*B).contiguous()  # [T*B]
     states     = states.reshape(T*B, -1).contiguous()          # [T*B, D]
     actions    = actions.reshape(T*B, -1).contiguous()         # [T*B, A]
     log_probs  = log_probs.reshape(T*B).contiguous()           # [T*B]
@@ -142,6 +165,7 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
         "advantages": advantages.cpu(),
         "mus": mus.cpu(),
         "stds": stds.cpu(),
+        "values": values_flat.cpu(), 
         "reward_sum": rewards.mean().item(),  
     }
 
@@ -286,6 +310,9 @@ class APPOMultiProcRunner:
         
         self.device = device
         self.cfg = train_cfg
+        
+        self.kl_ema = 0.0
+        self.beta_ema = 0.1   
 
         # === log roots ===
         # prefer dir from train(); otherwise fallback/default
@@ -293,8 +320,24 @@ class APPOMultiProcRunner:
         exp_name = self.cfg.get("experiment_name", "run")
         ts = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
+        self.resume = bool(self.cfg.get("resume", False))
+        
         # logs/ppo_run/<date-time-experiment_name>
-        self.run_root_dir = base_dir / f"{ts}-{exp_name}"
+        if self.resume:
+            # load last checkpoint
+            candidates = [p for p in base_dir.iterdir() if p.is_dir()]
+            candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            self.run_root_dir = None
+            for c in candidates:
+                if (c / "checkpoints").exists():
+                    self.run_root_dir = c
+                    break
+            if self.run_root_dir is None:
+                # create new if not found the checkpoint
+                self.run_root_dir = base_dir / f"{ts}-{exp_name}"
+        else:
+            self.run_root_dir = base_dir / f"{ts}-{exp_name}"        
+        
     
         if mp.current_process().name == "MainProcess":
             (self.run_root_dir / "tb").mkdir(parents=True, exist_ok=True)
@@ -363,9 +406,24 @@ class APPOMultiProcRunner:
         act_dim = gym.spaces.flatdim(act_space)
         return int(obs_dim), int(act_dim)
 
+#    def _maybe_resume(self):
+#        # look for ckpts in current run_root/checkpoints
+#        if self.cfg.get("continue", False):
+#            actor_path = get_latest_model(self.ckpt_dir, "actor")
+#            critic_path = get_latest_model(self.ckpt_dir, "critic")
+#            if actor_path and critic_path:
+#                actor_sd  = torch.load(actor_path,  map_location=self.device, weights_only=True)
+#                critic_sd = torch.load(critic_path, map_location=self.device, weights_only=True)
+#                self.actor.load_state_dict(actor_sd)
+#                self.critic.load_state_dict(critic_sd)
+#                self.actor.train(); self.critic.train()
+#                print("Models were loaded successfully (resume).")
+#        else:
+#            print("Starting a new run.")
+
     def _maybe_resume(self):
         # look for ckpts in current run_root/checkpoints
-        if self.cfg.get("continue", False):
+        if self.resume:
             actor_path = get_latest_model(self.ckpt_dir, "actor")
             critic_path = get_latest_model(self.ckpt_dir, "critic")
             if actor_path and critic_path:
@@ -374,10 +432,24 @@ class APPOMultiProcRunner:
                 self.actor.load_state_dict(actor_sd)
                 self.critic.load_state_dict(critic_sd)
                 self.actor.train(); self.critic.train()
-                print("Models were loaded successfully (resume).")
+                # восстановим номер эпизода из имени файла (actor_123.pt)
+                import re, os
+                def _ep(p):
+                    m = re.search(r"_(\d+)\.pt$", os.path.basename(p))
+                    return int(m.group(1)) if m else 0
+                self.episode = max(_ep(actor_path), _ep(critic_path))
+                print(f"Resumed from: {self.run_root_dir} @ episode {self.episode}")
+            else:
+                print("Resume requested, but no checkpoints found — starting a new run.")
         else:
             print("Starting a new run.")
 
+
+    def _apply_lr(self):
+        for opt in (self.actor_optim, self.critic_optim):
+            for g in opt.param_groups:
+                g['lr'] = self.lr
+                
     # ---------- API ----------
     def learn(self, num_learning_iterations: int | None = None):
         episodes = num_learning_iterations if num_learning_iterations is not None else self.episodes
@@ -433,13 +505,16 @@ class APPOMultiProcRunner:
             print("[ TRAINING STARTED ]")
             while self.episode < episodes:
             
-                self.start_event.clear() # block workers next epoch
+                
             
                 all_data = [self.queue.get() for _ in range(self.num_workers)] # get data from workers
                 
+                self.start_event.clear() # block workers next epoch   
+                time.sleep(0.001)
+                self.start_event.set()   # !!! permit workers to collect again  !!!       
                 
                 
-                states, actions, old_log_probs, returns, advantages, mus, stds, rewards = combine_batches(all_data)
+                states, actions, old_log_probs, returns, advantages, mus, stds, rewards, old_values = combine_batches(all_data)
                 # print(f'Episode {self.episode} State shape of received buffer {states.shape}') (16384, 235) with W × B × T = 4 × 128 × 32 = 16384
                 device = self.device
                 states = states.to(device)
@@ -447,13 +522,20 @@ class APPOMultiProcRunner:
                 old_log_probs = old_log_probs.to(device)
                 returns = returns.to(device)
                 advantages = advantages.to(device)
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8) # normalize
                 mus = mus.to(device)
                 stds = stds.to(device)
+                old_values = old_values.to(device)
 
                 self.reward_history.append(rewards)
+                
+                kl_epoch = []
+	
 
                 for _ in range(self.update_epochs):
+                    
                     idx = torch.randperm(states.size(0), device=device)
+
                     for start in range(0, states.size(0), self.batch_size):
                         b_idx = idx[start:start + self.batch_size]
 
@@ -464,42 +546,75 @@ class APPOMultiProcRunner:
                         batch_advantages = advantages[b_idx]
                         batch_mus = mus[b_idx]
                         batch_stds = stds[b_idx]
+                        batch_values = old_values[b_idx]
 
                         mu, std = self.actor(batch_states)
                         dist = torch.distributions.Normal(mu, std)
-                        new_log_probs = dist.log_prob(batch_actions).sum(dim=-1)
+
+                        eps = 1e-6
+                        a = torch.clamp(batch_actions, -1 + eps, 1 - eps)
+                        raw = 0.5 * (torch.log1p(a) - torch.log1p(-a))  # atanh(a)
+
+                        new_log_probs = dist.log_prob(raw).sum(dim=-1) - torch.sum(torch.log(1 - a.pow(2) + eps), dim=-1)
                         entropy = dist.entropy().sum(dim=-1).mean()
 
                         with torch.no_grad():
                             old_dist = torch.distributions.Normal(batch_mus, batch_stds)
                             kl_div = torch.distributions.kl_divergence(old_dist, dist).sum(dim=-1).mean()
-
-                        if kl_div > self.kl_treshold * 1.5:
-                            self.clip_eps = max(self.clip_eps * 0.999, self.clip_eps_min)
-                            self.lr = max(self.lr * 0.99, 5e-5)
+                            kl_epoch.append(kl_div.detach())
                             
-                            # break #
-                        if kl_div < self.kl_treshold * 0.66:
-                            self.clip_eps = min(self.clip_eps * 1.001, self.clip_eps_max)
-                            self.lr = min(self.lr * 1.01, 5e-3)
+
+                        #if kl_div > self.kl_treshold * 1.5:
+                        #    self.clip_eps = max(self.clip_eps * 0.9999, self.clip_eps_min)
+                        #    self.lr = max(self.lr * 0.999, 5e-5)
+                        #    self._apply_lr()
+                        #    
+                        #    # break #
+                        #if kl_div < self.kl_treshold * 0.66:
+                        #    self.clip_eps = min(self.clip_eps * 1.0001, self.clip_eps_max)
+                        #    self.lr = min(self.lr * 1.001, 5e-2)
+                        #    self._apply_lr()
                             
 
                         ratio = torch.exp(new_log_probs - batch_old_log_probs)
                         surr1 = ratio * batch_advantages
                         surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * batch_advantages
                         actor_loss = -torch.min(surr1, surr2).mean() - self.entropy_coef * entropy
-                        critic_loss = nn.MSELoss()(self.critic(batch_states).squeeze(-1), batch_returns)
+                        
+                        
+                        #critic_loss = nn.MSELoss()(self.critic(batch_states).squeeze(-1), batch_returns)
+                        v_pred = self.critic(batch_states).squeeze(-1)
+                        v_old  = batch_values 
 
+                        v_clip = (v_pred - v_old).clamp(-0.2, 0.2) + v_old
+                        critic_loss = 0.5 * torch.max((v_pred - batch_returns).pow(2), (v_clip - batch_returns).pow(2)).mean()
+                        #critic_loss = (v_pred - batch_returns).pow(2).mean()
+                        
+                        
                         self.actor_optim.zero_grad(set_to_none=True) #
                         actor_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.8) # 0.5
+                        #torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.8) # 0.5
                         self.actor_optim.step()
 
                         self.critic_optim.zero_grad(set_to_none=True) #
                         critic_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.5) # 0.5
+                        #torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.5) # 0.5
                         self.critic_optim.step()
+
                 
+                
+                kl_mean = torch.stack(kl_epoch).mean().item()
+                self.kl_ema = (1 - self.beta_ema) * self.kl_ema + self.beta_ema * kl_mean
+                
+                if self.kl_ema > self.kl_treshold * 1.5:
+                    self.lr = max(self.lr * 0.5, 1e-5)
+                    self.clip_eps = max(self.clip_eps * 0.9, self.clip_eps_min)
+                    self._apply_lr()
+                elif self.kl_ema < self.kl_treshold * 0.5:
+                    self.lr = min(self.lr * 1.2, 1e-3)     
+                    self.clip_eps = min(self.clip_eps * 1.05, self.clip_eps_max)
+                    self._apply_lr()
+
                 
                 if self.writer:
                     try:
@@ -507,10 +622,11 @@ class APPOMultiProcRunner:
                         self.writer.add_scalar("Rewards/Avg_Reward_10", avg_reward, self.episode)
                         self.writer.add_scalar("Loss/Actor", actor_loss.item(), self.episode)
                         self.writer.add_scalar("Loss/Critic", critic_loss.item(), self.episode)
-                        self.writer.add_scalar("Metrics/KL_Div", kl_div.item(), self.episode)
                         self.writer.add_scalar("Metrics/LR", self.lr, self.episode)
                         self.writer.add_scalar("Metrics/Entropy", entropy.item(), self.episode)
                         self.writer.add_scalar("Metrics/Clip_eps", self.clip_eps, self.episode)
+                        self.writer.add_scalar("Metrics/KL_Mean", kl_mean, self.episode)
+                        self.writer.add_scalar("Metrics/KL_EMA",  self.kl_ema, self.episode)
                         if (self.episode + 1) % 10 == 0:                     
                             print(f"Episode {self.episode + 1}: Avg reward = {avg_reward:.5f}")
                     except:
@@ -529,12 +645,13 @@ class APPOMultiProcRunner:
                 
 
                 # broadcast updated weights
-                actor_serialized = serialize_state_dict(move_state_dict_to_cpu(self.actor.state_dict()))
-                critic_serialized = serialize_state_dict(move_state_dict_to_cpu(self.critic.state_dict()))
+                if self.episode > 0 and self.episode % 1 == 0:
+                    actor_serialized = serialize_state_dict(move_state_dict_to_cpu(self.actor.state_dict()))
+                    critic_serialized = serialize_state_dict(move_state_dict_to_cpu(self.critic.state_dict()))
                 
-                # send new weights to workers
-                for q in self.model_queues:
-                    q.put((actor_serialized, critic_serialized))
+                    # send new weights to workers
+                    for q in self.model_queues:
+                        q.put((actor_serialized, critic_serialized))
                     
                 # --- resurrection of the dead workers ---
                 for i, p in enumerate(self.workers):
@@ -562,8 +679,8 @@ class APPOMultiProcRunner:
                         p2.start()
                         self.workers[i] = p2
                 # ------------------------------------  
+                # self.start_event.set()   # !!! permit workers to collect again  !!!
                 
-                self.start_event.set()   # !!! permit workers to collect again  !!!
                     
 
             print("Training finished")

@@ -447,31 +447,42 @@ class RewardsCfg:
     #)
     track_vel_exp_product = RewTerm(
         func=mdp.track_lin_ang_vel_exp_product,
-        weight=10.0,  
+        weight=60.0,  
         params=dict(
             command_name="base_velocity",
-            std=math.sqrt(0.25),
+            std=math.sqrt(0.5),
         ),
     )
     
     progress_to_target = RewTerm(
         func=mdp.progress_towards_target,
-        weight=10.0, 
-        params={"scale": 1.0, "clamp": 0.5, "stop_radius": 0.35, "near_bonus": 100.0},
+        weight=6.0, 
+        params={"scale": 1.0, "clamp": 0.5, "stop_radius": 0.35, "near_bonus": 2.0},
+    )
+    
+    heading_to_target = RewTerm(
+        func=mdp.heading_alignment_to_target,
+        weight=1.5,
+        params={"stop_radius": 0.35},
+    )    
+    upright = RewTerm(
+        func=mdp.trunk_upright_alignment,
+        weight=2.0,
+        params={"body_up_axis": "z", "power": 1.0},
     )
     
 
     
     # -- penalties
-    termination_penalty = RewTerm(func=mdp.is_terminated, weight=0.0)
-    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-10.0)
-    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-1.0)
-    dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1.0e-5)
+    termination_penalty = RewTerm(func=mdp.is_terminated, weight=-100.0)
+    lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-5.0)
+    ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.5)
+    dof_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-5.0e-6)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-1.0e-7)
-    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.15)
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.10)
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
-        weight=-0.125,
+        weight=-0.08,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"), # reassigned in child cfg
             "command_name": "base_velocity",
@@ -480,7 +491,7 @@ class RewardsCfg:
     )
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
-        weight=-10.0,
+        weight=-8.0,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["trunk"]), "threshold": 1.0},
     )
     # -- optional penalties

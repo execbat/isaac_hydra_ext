@@ -75,7 +75,8 @@ def build_parser():
     p.add_argument("--num_envs", type=int, default=None)
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--max_iterations", type=int, default=None)
-    p.add_argument("--resume", type=bool, default=None)
+    #p.add_argument("--resume", type=bool, default=None)
+    p.add_argument("--resume", action="store_true", help="Resume from latest checkpoints in log_dir")
 
     # devices/mode
     p.add_argument("--headless", action="store_true", default=True)
@@ -158,6 +159,8 @@ def main():
         train_cfg["seed"] = args.seed
     if args.max_iterations is not None:
         train_cfg["max_iterations"] = args.max_iterations
+    if args.resume:
+        train_cfg["resume"] = True    
     deep_update(train_cfg["appo_params"], clean({
         "num_workers": args.num_workers,
         "envs_per_worker": args.envs_per_worker,

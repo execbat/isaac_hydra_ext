@@ -4,34 +4,31 @@ from isaaclab.envs.manager_based_rl_env import ManagerBasedRLEnv
 # ---------- TARGET ----------
 
 @torch.no_grad()
-def respawn_reached_targets(
-    env: ManagerBasedRLEnv,
-    env_ids: torch.Tensor,       # 
-    reach_radius: float = 0.35,
-    r_min: float = 2.0,
-    r_max: float = 6.0,
-    z: float = 0.05,
-) -> None:
-    """Ищем энвы, где цель достигнута, и переспавниваем только там."""
+def respawn_reached_targets(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None,
+                            reach_radius: float = 0.35, r_min: float = 2.0, r_max: float = 6.0, z: float = 0.05):
     robot  = env.scene["robot"]
     target = env.scene["target"]
 
-    d = target.data.root_pos_w[:, :2] - robot.data.root_pos_w[:, :2]
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=env.device, dtype=torch.long)
+    else:
+        env_ids = env_ids.to(env.device, dtype=torch.long).view(-1)
+
+    # считаем только на указанном подмножестве
+    d = target.data.root_pos_w[env_ids, :2] - robot.data.root_pos_w[env_ids, :2]
     dist = torch.linalg.norm(d, dim=1)
-    hit = torch.nonzero(dist < reach_radius, as_tuple=False).squeeze(-1)
-    if hit.numel() > 0:
-        respawn_target(env, hit, r_min=r_min, r_max=r_max, z=z)
+    hit_local = torch.nonzero(dist < reach_radius, as_tuple=False).squeeze(-1)
+    if hit_local.numel() > 0:
+        hit_global = env_ids[hit_local]
+        respawn_target(env, hit_global, r_min=r_min, r_max=r_max, z=z)
 
 
-def respawn_target(
-    env: ManagerBasedRLEnv,
-    env_ids: torch.Tensor,
-    r_min: float = 2.0,
-    r_max: float = 6.0,
-    z: float = 0.05,
-) -> None:
+def respawn_target(env: ManagerBasedRLEnv, env_ids: torch.Tensor, r_min=2.0, r_max=6.0, z=0.05):
     device = env.device
+    env_ids = env_ids.to(device=device, dtype=torch.long).view(-1)
     N = env_ids.numel()
+    if N == 0:
+        return
 
     robot  = env.scene["robot"]
     target = env.scene["target"]
@@ -48,8 +45,8 @@ def respawn_target(
     pos[env_ids, 0:2] = goal_xy
     pos[env_ids, 2]   = z
 
-    pose7 = torch.cat((pos, quat), dim=1)  # (E,7)
-    target.write_root_pose_to_sim(pose7, env_ids=env_ids)
+    pose7_env = torch.cat((pos[env_ids], quat[env_ids]), dim=1)  # (N,7)
+    target.write_root_pose_to_sim(pose7_env, env_ids=env_ids)
 
 # ---------- OBSTACLES (RESET ONLY) ----------
 
