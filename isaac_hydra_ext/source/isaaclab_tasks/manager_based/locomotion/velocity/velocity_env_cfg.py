@@ -454,11 +454,11 @@ class RewardsCfg:
         ),
     )
     
-    progress_to_target = RewTerm(
-        func=mdp.progress_towards_target,
-        weight=6.0, 
-        params={"scale": 1.0, "clamp": 0.5, "stop_radius": 0.35, "near_bonus": 2.0},
-    )
+#    progress_to_target = RewTerm(
+#        func=mdp.progress_towards_target,
+#        weight=6.0, 
+#        params={"scale": 1.0, "clamp": 0.5, "stop_radius": 0.35, "near_bonus": 2.0},
+#    )
     
     heading_to_target = RewTerm(
         func=mdp.heading_alignment_to_target,

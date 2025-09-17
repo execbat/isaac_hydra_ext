@@ -11,7 +11,7 @@ import numpy as np
 import gymnasium as gym
 import multiprocessing as mp
 
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 from torch.utils.tensorboard import SummaryWriter
 from multiprocessing import Queue, Process
 
@@ -32,17 +32,6 @@ def get_latest_model(folder_path: str, key: str = "actor") -> str | None:
     if not files:
         return None
     return max([os.path.join(folder_path, f) for f in files], key=os.path.getctime)
-
-#def compute_gae(rewards: torch.Tensor, values: torch.Tensor, dones: torch.Tensor,
-#                gamma: float, lam: float) -> torch.Tensor:
-#    values = torch.cat([values, torch.zeros_like(values[0:1])], dim=0)
-#    deltas = rewards + gamma * values[1:] * (1 - dones) - values[:-1]
-#    returns = torch.zeros_like(deltas)
-#    gae = 0
-#    for t in reversed(range(len(deltas))):
-#        gae = deltas[t] + gamma * lam * (1 - dones[t]) * gae
-#        returns[t] = gae + values[t]
-#    return returns
 
 def compute_gae(rewards, values, dones, gamma, lam, last_value):
     # rewards, values, dones: [T, B]
@@ -65,14 +54,45 @@ def combine_batches(all_data):
     mus        = torch.cat([d["mus"]        for d in all_data], dim=0)  # [W*T*B, A]
     stds       = torch.cat([d["stds"]       for d in all_data], dim=0)  # [W*T*B, A]
     values     = torch.cat([d["values"]     for d in all_data], dim=0)
-    rewards    = float(np.mean([d["reward_sum"] for d in all_data]))
-    return states, actions, log_probs, returns, advantages, mus, stds, rewards, values
+
+    avg_ep_length        = np.mean([d["avg_ep_length"] for d in all_data])
+    avg_ep_return        = np.mean([d["avg_ep_return"] for d in all_data])
+    avg_reward_per_step  = np.mean([d["avg_reward_per_step"] for d in all_data])
+    return states, actions, log_probs, returns, advantages, mus, stds, avg_reward_per_step, values, avg_ep_return, avg_ep_length
 
 
-def collect_samples(envs, actor, critic, gamma: float, lam: float,
+def combine_batches(all_data):
+    states     = torch.cat([d["states"]     for d in all_data], dim=0)
+    actions    = torch.cat([d["actions"]    for d in all_data], dim=0)
+    log_probs  = torch.cat([d["log_probs"]  for d in all_data], dim=0)
+    returns    = torch.cat([d["returns"]    for d in all_data], dim=0)
+    advantages = torch.cat([d["advantages"] for d in all_data], dim=0)
+    mus        = torch.cat([d["mus"]        for d in all_data], dim=0)
+    stds       = torch.cat([d["stds"]       for d in all_data], dim=0)
+    values     = torch.cat([d["values"]     for d in all_data], dim=0)
+
+    # aggregating raw sums
+    ep_ret_sum = sum(float(d.get("ep_return_sum_batch", 0.0)) for d in all_data)
+    ep_len_sum = sum(int(d.get("ep_length_sum_batch", 0))     for d in all_data)
+    ep_cnt_sum = sum(int(d.get("ep_count_batch", 0))          for d in all_data)
+
+    rew_sum    = sum(float(d.get("reward_sum_batch", 0.0))    for d in all_data)
+    step_sum   = sum(int(d.get("step_count_batch", 0))        for d in all_data)
+
+    # global means
+    avg_ep_return = (ep_ret_sum / ep_cnt_sum) if ep_cnt_sum > 0 else float("nan")
+    avg_ep_length = (ep_len_sum / ep_cnt_sum) if ep_cnt_sum > 0 else float("nan")
+    avg_reward_per_step = (rew_sum / step_sum) if step_sum > 0 else 0.0
+
+    return (states, actions, log_probs, returns, advantages,
+            mus, stds, avg_reward_per_step, values, avg_ep_return, avg_ep_length)
+
+
+# states, actions, old_log_probs, returns, advantages, mus, stds, reward_mean_step, old_values, ep_returns, ep_lengths = combine_batches(all_data)
+
+def collect_samples(envs, state_tensor, actor, critic, gamma: float, lam: float,
                     steps_per_env: int, device: torch.device) -> Dict[str, Any]:
-    observation, _ = envs.reset()
-    state_tensor = observation['policy']
+                    
     
     states, actions, log_probs, rewards, dones, values, mus, stds = [], [], [], [], [], [], [], []
 
@@ -94,7 +114,7 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
         
         terminated_t = torch.as_tensor(terminated, dtype=torch.bool, device=device)
         truncated_t  = torch.as_tensor(truncated,  dtype=torch.bool, device=device)
-        done    = terminated_t #| truncated_t 
+        done    = terminated_t | truncated_t 
 
         # Commented because Isaac-Sim makes reset the envs which has got DONE by itself. No need extra reset manually.
         #if done.any().item():
@@ -143,7 +163,7 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
 
     #returns = compute_gae(rewards, values, dones, gamma, lam) # [T, B]
     advantages = returns - values
-    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8) # [T, B]
+    #advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8) # [T, B]
     
     T, B = states.shape[:2]
     
@@ -156,6 +176,9 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
     advantages = advantages.reshape(T*B).contiguous()          # [T*B]
     mus        = mus.reshape(T*B, -1).contiguous()             # [T*B, A]
     stds       = stds.reshape(T*B, -1).contiguous()            # [T*B, A]
+    #rewards    = rewards.reshape(T*B, -1).contiguous() 
+    #dones      = dones.reshape(T*B, -1).contiguous() 
+    
  
     return {
         "states": states.cpu(),
@@ -165,9 +188,94 @@ def collect_samples(envs, actor, critic, gamma: float, lam: float,
         "advantages": advantages.cpu(),
         "mus": mus.cpu(),
         "stds": stds.cpu(),
-        "values": values_flat.cpu(), 
-        "reward_sum": rewards.mean().item(),  
-    }
+        "values": values_flat.cpu(),   
+        
+        "rewards_seq": rewards.cpu(),   # [T, B] float32
+        "dones_seq":   dones.cpu(),     
+        },  state_tensor
+
+
+import math
+import torch
+from typing import Dict, Tuple, Optional
+
+def update_episode_stats_from_batch(
+    samples: Dict,
+    ep_ret: torch.Tensor,          # [B] float32 
+    ep_len: torch.Tensor,          # [B] int32   
+    last_avg: Optional[Dict[str, float]] = None,  # {"avg_ep_return": float, "avg_ep_length": float}
+    done_threshold: float = 0.5,
+) -> Tuple[Dict, torch.Tensor, torch.Tensor, Dict[str, float]]:
+    """
+    Обновляет статистику эпизодов по последовательности шагов из батча.
+    Никогда не возвращает NaN: если нет завершённых эпизодов в батче,
+    используется прошлое значение средних (last_avg).
+
+    Возвращает: (samples, ep_ret, ep_len, last_avg)
+      - samples дополнен ключами:
+          "avg_ep_return", "avg_ep_length", "avg_reward_per_step",
+          "ep_return_sum_batch", "ep_length_sum_batch", "ep_count_batch"
+      - last_avg обновлён, если были завершённые эпизоды
+    """
+    if last_avg is None:
+        last_avg = {"avg_ep_return": 0.0, "avg_ep_length": 0.0}
+
+    if not math.isfinite(last_avg.get("avg_ep_return", 0.0)):
+        last_avg["avg_ep_return"] = 0.0
+    if not math.isfinite(last_avg.get("avg_ep_length", 0.0)):
+        last_avg["avg_ep_length"] = 0.0
+
+    rewards_seq = samples.pop("rewards_seq")   # [T, B] float32
+    dones_seq   = samples.pop("dones_seq")     # [T, B] bool|float
+
+    if dones_seq.dtype != torch.bool:
+        dones_seq = dones_seq > done_threshold
+
+    T, B = rewards_seq.shape
+    assert ep_ret.numel() == B and ep_len.numel() == B, "B mismatch with accumulators"
+
+    batch_ep_ret_sum = 0.0
+    batch_ep_len_sum = 0
+    batch_ep_cnt     = 0
+
+    for t in range(T):
+        ep_ret += rewards_seq[t]      # [B]
+        ep_len += 1                   # [B]
+        done_idx = torch.nonzero(dones_seq[t], as_tuple=False).squeeze(-1)
+        if done_idx.numel() > 0:
+            batch_ep_ret_sum += float(ep_ret[done_idx].sum().item())
+            batch_ep_len_sum += int(ep_len[done_idx].sum().item())
+            batch_ep_cnt     += int(done_idx.numel())
+            # reset of new episodes
+            ep_ret[done_idx] = 0.0
+            ep_len[done_idx] = 0
+
+    # average data per batch
+    if batch_ep_cnt > 0:
+        avg_ep_return = batch_ep_ret_sum / batch_ep_cnt
+        avg_ep_length = batch_ep_len_sum / batch_ep_cnt
+        # update
+        last_avg["avg_ep_return"] = avg_ep_return
+        last_avg["avg_ep_length"] = avg_ep_length
+    else:
+        # no dones - use previous data
+        avg_ep_return = last_avg["avg_ep_return"]
+        avg_ep_length = last_avg["avg_ep_length"]
+
+    reward_sum_batch = float(rewards_seq.sum().item())
+    step_count_batch = int(rewards_seq.numel())
+
+    # pack metrics
+    #samples["avg_ep_return"]        = float(avg_ep_return)
+    #samples["avg_ep_length"]        = float(avg_ep_length)
+    samples["avg_reward_per_step"]  = (reward_sum_batch / step_count_batch) if step_count_batch > 0 else 0.0    
+    samples["ep_return_sum_batch"]  = float(batch_ep_ret_sum)  # raw data
+    samples["ep_length_sum_batch"]  = int(batch_ep_len_sum)    # raw data
+    samples["ep_count_batch"]       = int(batch_ep_cnt)        # raw data
+    samples["reward_sum_batch"]     = float(reward_sum_batch)  # raw data
+    samples["step_count_batch"]     = int(step_count_batch)    # raw data
+
+    return samples, ep_ret, ep_len, last_avg
 
 
 # ---------- worker ----------
@@ -266,6 +374,16 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
 
     # say Hello to the main process
     queue.put({"_hello": True, "worker_id": worker_id, "pid": os.getpid(), "envs": int(envs_per_worker)})
+    
+    # reset env only once at start
+    observation, _ = envs.reset()
+    state_tensor = observation['policy']
+    
+    # accumulators for statistics
+    B = state_tensor.shape[0]
+    ep_ret = torch.zeros(B, dtype=torch.float32, device = device)
+    ep_len = torch.zeros(B, dtype=torch.int32, device = device)
+    last_avg = {"avg_ep_return": 0.0, "avg_ep_length": 0.0}
 
     try:
         while True:
@@ -279,8 +397,14 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
                 pass
 
             with torch.no_grad():
-                samples = collect_samples(envs, actor.to(device), critic.to(device),
+                # receive last state_tensor from previous collection to continue from that point
+                samples, state_tensor = collect_samples(envs, state_tensor, actor.to(device), critic.to(device),
                                           gamma, lam, steps_per_env, device)
+                                          
+                # exctact statistics from samples                          
+                samples, ep_ret, ep_len, last_avg = update_episode_stats_from_batch(samples, ep_ret, ep_len, last_avg)
+               
+            # send samples to master process                              
             queue.put(samples)
     except Exception as e:
         import traceback
@@ -313,6 +437,10 @@ class APPOMultiProcRunner:
         
         self.kl_ema = 0.0
         self.beta_ema = 0.1   
+        
+        # stats
+        self._last_global_avg_return = 0.0
+        self._last_global_avg_length = 0.0
 
         # === log roots ===
         # prefer dir from train(); otherwise fallback/default
@@ -511,10 +639,22 @@ class APPOMultiProcRunner:
                 
                 self.start_event.clear() # block workers next epoch   
                 time.sleep(0.001)
-                self.start_event.set()   # !!! permit workers to collect again  !!!       
+                self.start_event.set()   # !!! permit workers to collect again  !!!     
+                
+                states, actions, old_log_probs, returns, advantages, mus, stds, avg_reward_per_step, old_values, avg_ep_return, avg_ep_length = combine_batches(all_data)
+                
+                #------------------------------------------------------------------
+                # working with statistics                
+                if not np.isfinite(avg_ep_return) or not np.isfinite(avg_ep_length):
+                    # if no finished episodes
+                    avg_ep_return = self._last_global_avg_return
+                    avg_ep_length = self._last_global_avg_length
+                else:
+                    self._last_global_avg_return = float(avg_ep_return)
+                    self._last_global_avg_length = float(avg_ep_length)
+                #------------------------------------------------------------------
                 
                 
-                states, actions, old_log_probs, returns, advantages, mus, stds, rewards, old_values = combine_batches(all_data)
                 # print(f'Episode {self.episode} State shape of received buffer {states.shape}') (16384, 235) with W × B × T = 4 × 128 × 32 = 16384
                 device = self.device
                 states = states.to(device)
@@ -527,7 +667,7 @@ class APPOMultiProcRunner:
                 stds = stds.to(device)
                 old_values = old_values.to(device)
 
-                self.reward_history.append(rewards)
+                self.reward_history.append(avg_reward_per_step)
                 
                 kl_epoch = []
 	
@@ -618,8 +758,9 @@ class APPOMultiProcRunner:
                 
                 if self.writer:
                     try:
-                        avg_reward = float(np.mean(self.reward_history[-1]))
-                        self.writer.add_scalar("Rewards/Avg_Reward_10", avg_reward, self.episode)
+                        
+                        self.writer.add_scalar("Rewards/avg_episode_length",   avg_ep_length,        self.episode)
+                        self.writer.add_scalar("Rewards/avg_episode_return",   avg_ep_return,        self.episode)
                         self.writer.add_scalar("Loss/Actor", actor_loss.item(), self.episode)
                         self.writer.add_scalar("Loss/Critic", critic_loss.item(), self.episode)
                         self.writer.add_scalar("Metrics/LR", self.lr, self.episode)
@@ -628,7 +769,7 @@ class APPOMultiProcRunner:
                         self.writer.add_scalar("Metrics/KL_Mean", kl_mean, self.episode)
                         self.writer.add_scalar("Metrics/KL_EMA",  self.kl_ema, self.episode)
                         if (self.episode + 1) % 10 == 0:                     
-                            print(f"Episode {self.episode + 1}: Avg reward = {avg_reward:.5f}")
+                            print(f"Episode {self.episode + 1}: Avg episode reward = {avg_ep_return:.5f}")
                     except:
                         pass        
 
