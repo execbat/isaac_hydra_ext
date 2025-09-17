@@ -447,7 +447,7 @@ class RewardsCfg:
     #)
     track_vel_exp_product = RewTerm(
         func=mdp.track_lin_ang_vel_exp_product,
-        weight=60.0,  
+        weight=5.0,  
         params=dict(
             command_name="base_velocity",
             std=math.sqrt(0.5),
@@ -460,14 +460,14 @@ class RewardsCfg:
 #        params={"scale": 1.0, "clamp": 0.5, "stop_radius": 0.35, "near_bonus": 2.0},
 #    )
     
-    heading_to_target = RewTerm(
-        func=mdp.heading_alignment_to_target,
-        weight=1.5,
-        params={"stop_radius": 0.35},
-    )    
+#    heading_to_target = RewTerm(
+#        func=mdp.heading_alignment_to_target,
+#        weight=1.5,
+#        params={"stop_radius": 0.35},
+#    )    
     upright = RewTerm(
         func=mdp.trunk_upright_alignment,
-        weight=2.0,
+        weight=0.1,
         params={"body_up_axis": "z", "power": 1.0},
     )
     

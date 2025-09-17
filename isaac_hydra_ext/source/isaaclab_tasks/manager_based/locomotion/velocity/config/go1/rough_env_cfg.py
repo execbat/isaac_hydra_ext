@@ -68,7 +68,7 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
 
 
         # reduce action scale
-        # self.actions.joint_pos.scale = 0.5
+        self.actions.joint_pos.scale = 0.5
 
         # event
         self.events.push_robot = None
@@ -96,12 +96,12 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         
 
         #self.rewards.undesired_contacts = None
-        self.rewards.undesired_contacts.weight = -1.0
+        self.rewards.undesired_contacts.weight = -0.1
         self.rewards.dof_torques_l2.weight = -5e-6 
         
         #self.rewards.track_lin_vel_xy_exp_custom.weight = 12.0
         #self.rewards.track_ang_vel_z_exp_custom.weight = 3.0
-        self.rewards.track_vel_exp_product.weight = 100
+        self.rewards.track_vel_exp_product.weight = 1
 #        self.rewards.progress_to_target.weight = 6.0 
         
         self.rewards.dof_acc_l2.weight = -1e-7
@@ -109,11 +109,11 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # PENALTIES
         self.rewards.action_rate_l2.weight = -0.01
         
-        self.rewards.flat_orientation_l2.weight = -2.0    
+        self.rewards.flat_orientation_l2.weight = 0.0    
         self.rewards.dof_pos_limits.weight      = -0.1   
         
-        self.rewards.lin_vel_z_l2.weight = -1.0
-        self.rewards.ang_vel_xy_l2.weight = -0.2
+        self.rewards.lin_vel_z_l2.weight = -0.1
+        self.rewards.ang_vel_xy_l2.weight = -0.02
          
         
         #self.rewards.track_lin_vel_xy_mse.weight = -3.0 # penalty for not following desired direction
@@ -121,7 +121,7 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
 
         # terminations
         self.terminations.base_contact.params["sensor_cfg"].body_names = ['trunk', '.*_thigh', '.*_hip']
-        self.rewards.termination_penalty.weight = -100.0
+        self.rewards.termination_penalty.weight = -300.0
         
    
 

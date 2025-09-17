@@ -1,5 +1,6 @@
 import torch
 from isaaclab.envs.manager_based_rl_env import ManagerBasedRLEnv
+from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
 
 # ---------- TARGET ----------
 
@@ -130,3 +131,95 @@ def spawn_obstacles_at_reset(
 
     pose7 = torch.cat((pos, quat), dim=-1)
     coll.write_object_pose_to_sim(pose7)
+    
+def _yaw_from_quat_wxyz(q: torch.Tensor) -> torch.Tensor:
+    """Берём yaw (рад) из кватерниона(ов) формата (w,x,y,z)."""
+    # euler_xyz_from_quat возвращает (roll, pitch, yaw)
+    _, _, yaw = euler_xyz_from_quat(q, wrap_to_2pi=False)
+    return wrap_to_pi(yaw)
+
+
+@torch.no_grad()
+def commands_towards_target(
+    env: ManagerBasedRLEnv,
+    env_ids: torch.Tensor | None,       
+    command_name: str = "base_velocity",
+    lin_speed: float = 0.6,
+    max_yaw_rate: float = 2.0,
+    stop_radius: float = 0.35,
+    slow_radius: float = 1.2,
+    yaw_kp: float = 2.0,
+    holonomic: bool = True,
+) -> torch.Tensor:
+    # нормализуем env_ids
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=env.device, dtype=torch.long)
+    else:
+        env_ids = env_ids.to(env.device, dtype=torch.long).view(-1)
+    if env_ids.numel() == 0:
+        return torch.zeros((0, 3), device=env.device)
+
+    robot  = env.scene["robot"]
+    target = env.scene["target"]
+
+    # позиции только для выбранных env
+    pr = robot.data.root_pos_w[env_ids, :2]    # (N,2)
+    pt = target.data.root_pos_w[env_ids, :2]   # (N,2)
+    yaw = _yaw_from_quat_wxyz(robot.data.root_quat_w[env_ids])  # (N,)
+
+    d = pt - pr
+    dist = torch.linalg.norm(d, dim=1)
+    heading = torch.atan2(d[:, 1], d[:, 0])
+
+    tiny = dist < 1e-9
+    if tiny.any():
+        heading = torch.where(tiny, yaw, heading)
+
+    err_yaw = wrap_to_pi(heading - yaw)
+
+    # профиль скорости
+    denom = float(max(slow_radius - stop_radius, 1e-6))
+    speed_scale = ((dist - stop_radius) / denom).clamp(0.0, 1.0)
+    v = lin_speed * speed_scale
+
+    if holonomic:
+        vx = v * torch.cos(err_yaw)
+        vy = v * torch.sin(err_yaw)
+    else:
+        vx = v * torch.cos(err_yaw)
+        vy = torch.zeros_like(vx)
+
+    wz = (yaw_kp * err_yaw).clamp(-max_yaw_rate, max_yaw_rate)
+
+    near = dist < stop_radius
+    if near.any():
+        z = torch.zeros_like(v)
+        vx = torch.where(near, z, vx)
+        vy = torch.where(near, z, vy)
+        wz = torch.where(near, z, wz)
+
+    cmd = torch.stack((vx, vy, wz), dim=1)  # (N,3)
+
+    # запись в command_manager только по env_ids
+    cm = getattr(env, "command_manager", None)
+    if cm is not None:
+        term = cm.get_term(command_name)
+        cmd = cmd.to(device=term.command.device, dtype=term.command.dtype)
+
+        N_dst, C_dst = term.command.shape
+        _, C_src = cmd.shape
+        k = min(C_src, C_dst)
+
+        if N_dst == env.scene.num_envs:
+            term.command[env_ids, :k].copy_(cmd[:, :k])
+        elif N_dst == 1:
+            # буфер «общий на все» — кладём первую строку
+            term.command[:1, :k].copy_(cmd[:1, :k])
+        else:
+            # редкий случай несоответствия формы
+            raise RuntimeError(
+                f"Command buffer shape {term.command.shape} "
+                f"не согласуется с env_ids (N={env.scene.num_envs})."
+            )
+
+    return cmd

@@ -3,7 +3,10 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene.events import respawn_target, respawn_reached_targets, spawn_obstacles_at_reset
+from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene.events import respawn_target, respawn_reached_targets, spawn_obstacles_at_reset, commands_towards_target
+
+
+
 @configclass
 class ChaseEventCfg:
     """Configuration for events."""
@@ -106,6 +109,20 @@ class ChaseEventCfg:
         params={"reach_radius": 0.35, "r_min": 2.0, "r_max": 6.0, "z": 0.05},
     )        
     
+    update_cmd_towards_target = EventTerm(
+        func=commands_towards_target,
+        mode="interval",
+        interval_range_s=(0.0, 0.0),
+        params={
+            "command_name": "base_velocity",
+            "lin_speed" : 0.6,
+            "max_yaw_rate" : 2.0,
+            "stop_radius" : 0.35,
+            "slow_radius" : 1.2,
+            "yaw_kp" : 2.0,
+            "holonomic" : True,
+        },    
+    )
 
 
 

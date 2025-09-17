@@ -45,20 +45,20 @@ def compute_gae(rewards, values, dones, gamma, lam, last_value):
         returns[t] = gae + values[t]
     return returns
 
-def combine_batches(all_data):
-    states     = torch.cat([d["states"]     for d in all_data], dim=0)  # [W*T*B, D]
-    actions    = torch.cat([d["actions"]    for d in all_data], dim=0)  # [W*T*B, A]
-    log_probs  = torch.cat([d["log_probs"]  for d in all_data], dim=0)  # [W*T*B]
-    returns    = torch.cat([d["returns"]    for d in all_data], dim=0)  # [W*T*B]
-    advantages = torch.cat([d["advantages"] for d in all_data], dim=0)  # [W*T*B]
-    mus        = torch.cat([d["mus"]        for d in all_data], dim=0)  # [W*T*B, A]
-    stds       = torch.cat([d["stds"]       for d in all_data], dim=0)  # [W*T*B, A]
-    values     = torch.cat([d["values"]     for d in all_data], dim=0)
+#def combine_batches(all_data):
+#    states     = torch.cat([d["states"]     for d in all_data], dim=0)  # [W*T*B, D]
+#    actions    = torch.cat([d["actions"]    for d in all_data], dim=0)  # [W*T*B, A]
+#    log_probs  = torch.cat([d["log_probs"]  for d in all_data], dim=0)  # [W*T*B]
+#    returns    = torch.cat([d["returns"]    for d in all_data], dim=0)  # [W*T*B]
+#    advantages = torch.cat([d["advantages"] for d in all_data], dim=0)  # [W*T*B]
+#    mus        = torch.cat([d["mus"]        for d in all_data], dim=0)  # [W*T*B, A]
+#    stds       = torch.cat([d["stds"]       for d in all_data], dim=0)  # [W*T*B, A]
+#    values     = torch.cat([d["values"]     for d in all_data], dim=0)#
 
-    avg_ep_length        = np.mean([d["avg_ep_length"] for d in all_data])
-    avg_ep_return        = np.mean([d["avg_ep_return"] for d in all_data])
-    avg_reward_per_step  = np.mean([d["avg_reward_per_step"] for d in all_data])
-    return states, actions, log_probs, returns, advantages, mus, stds, avg_reward_per_step, values, avg_ep_return, avg_ep_length
+#    avg_ep_length        = np.mean([d["avg_ep_length"] for d in all_data])
+#    avg_ep_return        = np.mean([d["avg_ep_return"] for d in all_data])
+#    avg_reward_per_step  = np.mean([d["avg_reward_per_step"] for d in all_data])
+#    return states, actions, log_probs, returns, advantages, mus, stds, avg_reward_per_step, values, avg_ep_return, avg_ep_length
 
 
 def combine_batches(all_data):
@@ -266,8 +266,8 @@ def update_episode_stats_from_batch(
     step_count_batch = int(rewards_seq.numel())
 
     # pack metrics
-    #samples["avg_ep_return"]        = float(avg_ep_return)
-    #samples["avg_ep_length"]        = float(avg_ep_length)
+    samples["avg_ep_return"]        = float(avg_ep_return)
+    samples["avg_ep_length"]        = float(avg_ep_length)
     samples["avg_reward_per_step"]  = (reward_sum_batch / step_count_batch) if step_count_batch > 0 else 0.0    
     samples["ep_return_sum_batch"]  = float(batch_ep_ret_sum)  # raw data
     samples["ep_length_sum_batch"]  = int(batch_ep_len_sum)    # raw data
@@ -759,7 +759,7 @@ class APPOMultiProcRunner:
                 if self.writer:
                     try:
                         
-                        self.writer.add_scalar("Rewards/avg_episode_length",   avg_ep_length,        self.episode)
+                        self.writer.add_scalar("Rewards/avg_episode_length",   avg_ep_length ,        self.episode)
                         self.writer.add_scalar("Rewards/avg_episode_return",   avg_ep_return,        self.episode)
                         self.writer.add_scalar("Loss/Actor", actor_loss.item(), self.episode)
                         self.writer.add_scalar("Loss/Critic", critic_loss.item(), self.episode)
