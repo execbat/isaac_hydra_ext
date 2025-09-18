@@ -109,20 +109,19 @@ class ChaseEventCfg:
         params={"reach_radius": 0.35, "r_min": 2.0, "r_max": 6.0, "z": 0.05},
     )        
     
-    update_cmd_towards_target = EventTerm(
-        func=commands_towards_target,
-        mode="interval",
-        interval_range_s=(0.0, 0.0),
-        params={
-            "command_name": "base_velocity",
-            "lin_speed" : 0.6,
-            "max_yaw_rate" : 2.0,
-            "stop_radius" : 0.35,
-            "slow_radius" : 1.2,
-            "yaw_kp" : 2.0,
-            "holonomic" : True,
-        },    
-    )
+#    update_cmd_towards_target = EventTerm(
+#        func=commands_towards_target,
+#        mode="interval",
+#        interval_range_s=(0.0, 0.0),
+#        params={
+#            "robot_entity": SceneEntityCfg("robot"),
+#            "target_entity":  SceneEntityCfg("target"),
+#            "max_speed": 1.0,
+#            "k_lin":  1.0,
+#            "stop_radius":  0.15,
+#            "allow_strafe": False,
+#        },    
+#    )
 
 
 

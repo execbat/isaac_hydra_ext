@@ -733,12 +733,12 @@ class APPOMultiProcRunner:
                         
                         self.actor_optim.zero_grad(set_to_none=True) #
                         actor_loss.backward()
-                        #torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.8) # 0.5
+                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.8) # 0.5
                         self.actor_optim.step()
 
                         self.critic_optim.zero_grad(set_to_none=True) #
                         critic_loss.backward()
-                        #torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.5) # 0.5
+                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.5) # 0.5
                         self.critic_optim.step()
 
                 
@@ -759,8 +759,9 @@ class APPOMultiProcRunner:
                 if self.writer:
                     try:
                         
-                        self.writer.add_scalar("Rewards/avg_episode_length",   avg_ep_length ,        self.episode)
+                        self.writer.add_scalar("Rewards/avg_reward_per_step",   avg_reward_per_step ,        self.episode)
                         self.writer.add_scalar("Rewards/avg_episode_return",   avg_ep_return,        self.episode)
+                        self.writer.add_scalar("Rewards/avg_episode_length",   avg_ep_length ,        self.episode)
                         self.writer.add_scalar("Loss/Actor", actor_loss.item(), self.episode)
                         self.writer.add_scalar("Loss/Critic", critic_loss.item(), self.episode)
                         self.writer.add_scalar("Metrics/LR", self.lr, self.episode)
