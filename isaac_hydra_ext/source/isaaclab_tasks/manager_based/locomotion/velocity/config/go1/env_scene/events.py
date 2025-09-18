@@ -16,7 +16,6 @@ def respawn_reached_targets(env: ManagerBasedRLEnv, env_ids: torch.Tensor | None
     else:
         env_ids = env_ids.to(env.device, dtype=torch.long).view(-1)
 
-    # считаем только на указанном подмножестве
     d = target.data.root_pos_w[env_ids, :2] - robot.data.root_pos_w[env_ids, :2]
     dist = torch.linalg.norm(d, dim=1)
     hit_local = torch.nonzero(dist < reach_radius, as_tuple=False).squeeze(-1)
@@ -59,12 +58,10 @@ def _collect_obstacle_objects(env: ManagerBasedRLEnv):
         names = [k for k in env.scene.rigid_objects.keys() if k.startswith("obst_")]
         obst_objs = [env.scene[k] for k in names]
     else:
-        # по атрибутам
         names = [n for n in dir(env.scene) if n.startswith("obst_")]
         obst_objs = [getattr(env.scene, n) for n in names]
 
     if len(obst_objs) == 0 and "obstacles" in getattr(env.scene, "__getitem__", lambda k: {}) and isinstance(env.scene["obstacles"], object):
-        # очень осторожный fallback на один объект
         return [env.scene["obstacles"]]
     return obst_objs
 
@@ -135,7 +132,6 @@ def spawn_obstacles_at_reset(
     
 def _yaw_from_quat_xyzw(q_xyzw: torch.Tensor) -> torch.Tensor:
     """Возвращает yaw (рад) из кватерниона(ов) XYZW."""
-    # euler_xyz_from_quat ожидает XYZW, возвращает (roll, pitch, yaw)
     _, _, yaw = euler_xyz_from_quat(q_xyzw, wrap_to_2pi=False)
     return wrap_to_pi(yaw)
 
@@ -150,10 +146,8 @@ def commands_towards_target(
     stop_radius: float = 0.15,
     allow_strafe: bool = False,
 ):
-    """Ивент: на каждом шаге направляет робота к таргету,
-    переписывая команду base_velocity (lin x/y + heading).
-    """
-    # 1) Чтение состояний (world frame)
+
+    # 1) read states (world frame)
     robot = env.scene[robot_entity.name]
     target = env.scene[target_entity.name]
 
@@ -164,25 +158,22 @@ def commands_towards_target(
     base_quat_w = base_state_w[:, 3:7]
     target_pos_w = target_state_w[:, 0:3]
 
-    # 2) Вектор до цели в world и 2D-дистанция
+    # 2) vector to the target in Worls CS and 2D-distance
     delta_w = target_pos_w - base_pos_w
     delta_xy = delta_w[:, :2]
     dist_xy = torch.linalg.norm(delta_xy, dim=1)
 
-    # 3) Абсолютный целевой heading на цель (мировой): atan2(dy, dx)
+    # 3) absolute heading in World atan2(dy, dx)
     heading_goal = torch.atan2(delta_w[:, 1], delta_w[:, 0])
 
-    # 4) Линейные скорости
-    # Вариант А: только вперёд (подходит для не-голономных/ног)
+    # 4) linear speeds
     if not allow_strafe:
         v_forward = torch.clamp(k_lin * dist_xy, 0.0, max_speed)
-        # гасим скорость внутри радиуса стоянки
+        # гslow down speed rear of the target
         v_forward = torch.where(dist_xy < stop_radius, torch.zeros_like(v_forward), v_forward)
         vx_cmd = v_forward
         vy_cmd = torch.zeros_like(v_forward)
     else:
-        # Вариант Б: страфим (переводим delta в локальный yaw-фрейм базы)
-        # Берём только yaw-составляющую ориентации, чтобы не завязываться на крен/тангаж
         delta_in_base_yaw = math_utils.quat_apply_inverse(math_utils.yaw_quat(base_quat_w), delta_w)
         vx = torch.clamp(k_lin * delta_in_base_yaw[:, 0], -max_speed, max_speed)
         vy = torch.clamp(k_lin * delta_in_base_yaw[:, 1], -max_speed, max_speed)
@@ -190,9 +181,9 @@ def commands_towards_target(
         vx_cmd = torch.where(mask_stop, torch.zeros_like(vx), vx)
         vy_cmd = torch.where(mask_stop, torch.zeros_like(vy), vy)
 
-    # 5) Запись в командный терм
+
     cmd_term = env.command_manager.get_term("base_velocity")  # UniformVelocityCommand
-    cmd = cmd_term.command  # (N, 3): lin_x, lin_y, heading (т.к. heading_command=True)
+    cmd = cmd_term.command  # (N, 3): lin_x, lin_y, heading (heading_command=True)
     cmd[:, 0] = vx_cmd
     cmd[:, 1] = vy_cmd
     cmd[:, 2] = heading_goal

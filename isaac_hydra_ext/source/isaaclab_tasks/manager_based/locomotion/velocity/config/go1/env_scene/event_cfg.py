@@ -101,7 +101,6 @@ class ChaseEventCfg:
         params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
     
-    # периодическая переспавн- проверка — каждую итерацию
     respawn_when_reached = EventTerm(
         func=respawn_reached_targets,
         mode="interval",

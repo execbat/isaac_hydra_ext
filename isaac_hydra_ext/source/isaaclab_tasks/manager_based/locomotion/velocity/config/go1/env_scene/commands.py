@@ -53,12 +53,12 @@ class TargetChaseVelocityCommand(CommandTerm):
                 f"[TargetChaseVelocityCommand] target_asset_name '{cfg.target_asset_name}' not found in scene"
             )
 
-        # buffers (совместимо по форме с Uniform)
+        # buffers 
         self.vel_command_b = torch.zeros(self.num_envs, 3, device=self.device)   # [vx_b, vy_b, yaw_rate]
         self.heading_target = torch.zeros(self.num_envs, device=self.device)     # world heading to target
         self.is_standing_env = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
-        # metrics (как в Uniform)
+        # metrics
         self.metrics["error_vel_xy"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["error_vel_yaw"] = torch.zeros(self.num_envs, device=self.device)
 
@@ -84,7 +84,6 @@ class TargetChaseVelocityCommand(CommandTerm):
     # ------------------------
 
     def _update_metrics(self):
-        # как в Uniform — накапливаем средние ошибки
         max_command_time = self.cfg.resampling_time_range[1]
         max_command_step = max_command_time / self._env.step_dt if max_command_time > 0.0 else 1.0
         self.metrics["error_vel_xy"] += (
@@ -95,7 +94,6 @@ class TargetChaseVelocityCommand(CommandTerm):
         )
 
     def _resample_command(self, env_ids: Sequence[int]):
-        # Мы не сэмплим сами значения команды — только помечаем "стоящие" энвы как в Uniform
         r = torch.empty(len(env_ids), device=self.device)
         self.is_standing_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_standing_envs
 
@@ -111,17 +109,15 @@ class TargetChaseVelocityCommand(CommandTerm):
         delta_xy_w = delta_w[:, :2]
         dist_xy = torch.linalg.norm(delta_xy_w, dim=1)
 
-        # world heading to target (для yaw-контроля и метрик)
+        # world heading to target 
         self.heading_target = torch.atan2(delta_xy_w[:, 1], delta_xy_w[:, 0])
 
         # --- linear part in base frame (b) ---
-        # поворачиваем в базовую СК по yaw
         cy, sy = torch.cos(base_yaw_w), torch.sin(base_yaw_w)
         dx_b =  cy * delta_xy_w[:, 0] + sy * delta_xy_w[:, 1]
         dy_b = -sy * delta_xy_w[:, 0] + cy * delta_xy_w[:, 1]
         delta_b_xy = torch.stack([dx_b, dy_b], dim=1)
 
-        # профиль скорости
         speed = torch.clamp(self.cfg.k_lin * dist_xy, 0.0, self.cfg.max_speed)
         speed = torch.where(dist_xy < self.cfg.stop_radius, torch.zeros_like(speed), speed)
 
@@ -137,7 +133,7 @@ class TargetChaseVelocityCommand(CommandTerm):
         vx_b = torch.clamp(vx_b, self.cfg.ranges.lin_vel_x[0], self.cfg.ranges.lin_vel_x[1])
         vy_b = torch.clamp(vy_b, self.cfg.ranges.lin_vel_y[0], self.cfg.ranges.lin_vel_y[1])
 
-        # --- yaw rate (P по ошибке heading) ---
+        # --- yaw rate ---
         heading_err = math_utils.wrap_to_pi(self.heading_target - base_yaw_w)
         yaw_rate = torch.clip(
             self.cfg.heading_control_stiffness * heading_err,
@@ -145,7 +141,6 @@ class TargetChaseVelocityCommand(CommandTerm):
             max=self.cfg.ranges.ang_vel_z[1],
         )
 
-        # стоящие энвы — нули
         standing_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
         vx_b[standing_ids] = 0.0
         vy_b[standing_ids] = 0.0
@@ -157,7 +152,7 @@ class TargetChaseVelocityCommand(CommandTerm):
         self.vel_command_b[:, 2] = yaw_rate
 
     # ------------------------
-    # Debug visualization (как в Uniform)
+    # Debug visualization
     # ------------------------
 
     def _set_debug_vis_impl(self, debug_vis: bool):
@@ -175,11 +170,10 @@ class TargetChaseVelocityCommand(CommandTerm):
     def _debug_vis_callback(self, event):
         if not self.robot.is_initialized:
             return
-        # чуть приподнимем стрелки
+            
         base_pos_w = self.robot.data.root_pos_w.clone()
         base_pos_w[:, 2] += 0.5
 
-        # desired/current — берём XY в базе и конвертируем в мир (как в Uniform)
         vel_des_scale, vel_des_quat = self._resolve_xy_velocity_to_arrow(self.command[:, :2])
         vel_cur_scale, vel_cur_quat = self._resolve_xy_velocity_to_arrow(self.robot.data.root_lin_vel_b[:, :2])
 

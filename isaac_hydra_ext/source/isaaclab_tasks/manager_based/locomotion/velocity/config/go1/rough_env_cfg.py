@@ -99,9 +99,10 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.undesired_contacts.weight = -0.1
         self.rewards.dof_torques_l2.weight = -5e-6 
         
-        #self.rewards.track_lin_vel_xy_exp_custom.weight = 12.0
-        #self.rewards.track_ang_vel_z_exp_custom.weight = 3.0
-        self.rewards.track_vel_exp_product.weight = 10
+        self.rewards.track_lin_vel_xy_exp_custom.weight = 5.0
+        self.rewards.track_ang_vel_z_exp_custom.weight = 10.0
+#        self.rewards.track_vel_exp_product.weight = 10
+        self.rewards.com_over_support_h.weight = 1
 #        self.rewards.progress_to_target.weight = 6.0 
         
         self.rewards.dof_acc_l2.weight = -1e-7

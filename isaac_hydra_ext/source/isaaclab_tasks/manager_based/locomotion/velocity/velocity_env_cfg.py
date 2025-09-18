@@ -439,20 +439,41 @@ class RewardsCfg:
     """Reward terms for the MDP."""
 
     # -- task
-    #track_lin_vel_xy_exp_custom = RewTerm(
-    #    func=mdp.track_lin_vel_xy_exp_custom, weight=10.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
-    #)
-    #track_ang_vel_z_exp_custom = RewTerm(
-    #    func=mdp.track_ang_vel_z_exp_custom, weight=5.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
-    #)
-    track_vel_exp_product = RewTerm(
-        func=mdp.track_lin_ang_vel_exp_product,
-        weight=5.0,  
-        params=dict(
-            command_name="base_velocity",
-            std=math.sqrt(0.5),
-        ),
+    track_lin_vel_xy_exp_custom = RewTerm(
+        func=mdp.track_lin_vel_xy_exp_custom, weight=10.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25), "DEBUG": False}
     )
+    track_ang_vel_z_exp_custom = RewTerm(
+        func=mdp.track_ang_vel_z_exp_custom, weight=5.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25), "DEBUG": False}
+    )
+    #track_vel_exp_product = RewTerm(
+    #    func=mdp.track_lin_ang_vel_exp_product,
+    #    weight=5.0,  
+    #    params=dict(
+    #        command_name="base_velocity",
+    #        std=math.sqrt(0.5),
+    #    ),
+    #)
+    
+    com_over_support_h = RewTerm(
+        func=mdp.com_over_support_height_reward_fast,
+        weight=3.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "asset_cfg":  SceneEntityCfg("robot",           body_names=".*_foot"),
+            "contact_force_threshold": 1.0,     # как в feet_slide; при шуме подними
+            "target_height": 0.171,
+            "height_tolerance": 0.15,
+            "slope_aware": True,
+            "weighted": True,
+            "inside_margin": 0.10,
+            "beta_inside": 4.0,
+            "weight_height": 1.0,
+            "weight_inside": 1.0,
+            "DEBUG": False,                     
+            "DEBUG_MAX_ENVS": 1,
+        },
+    )
+
     
 #    progress_to_target = RewTerm(
 #        func=mdp.progress_towards_target,
