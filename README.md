@@ -1,5 +1,7 @@
 # isaac_hydra_ext
 
+Extensions for **Isaac Lab 4.5** (NVIDIA Isaac Sim) with APPO training and demo for the **Unitree Go1** velocity task.
+
 ![Isaac Lab](go1_rough.jpg)
 
 ---
@@ -43,11 +45,11 @@ It lets you launch training via Hydra configs without modifying the trainer.
 # Collected on CPU by workers
 steps_per_env: 24        # T, steps per environment before each policy update
 num_workers: 4           # W, how many CPU worker processes
-envs_per_worker: 128     # B, vectorized envs per worker
+envs_per_worker: 64      # B, vectorized envs per worker
 
 # Applied on GPU by the main process
-update_epochs: 4         # how many passes over the same Buffer per iteration
-batch_size: 2048         # SGD minibatch size for the Policy/Critic updates
+update_epochs: 10         # how many passes over the same Buffer per iteration
+batch_size: 512           # SGD minibatch size for the Policy/Critic updates
 ```
 
 **Intuition:**
@@ -70,9 +72,9 @@ batch_size: 2048         # SGD minibatch size for the Policy/Critic updates
 
 ## Requirements
 
-- Python 3.9–3.11
-- `hydra-core >= 1.3`
-- Isaac Lab / Isaac Sim (5.0+ recommended) or any Gym env (for the Gym example).
+- **Isaac Sim / Isaac Lab 4.5** (Ubuntu 20.04/22.04, CUDA‑capable GPU)
+- Python 3.10 (Isaac Lab ships a ready environment)
+- Access to Nucleus server for robot/scene assets
 
 ---
 
@@ -129,62 +131,96 @@ pip install -e /root/isaac_hydra_ext
 
 ## Project layout
 
-```text
+```
 isaac_hydra_ext/
 ├─ README.md
-├─ pyproject.toml
-├─ scripts/
-│  ├─ run_gym_local.sh
-│  ├─ run_isaacsim_docker.sh
-│  └─ install_inside_container.sh
-└─ isaac_hydra_ext/
-   ├─ __init__.py
-   ├─ appo_runner.py
-   ├─ plugins/
-   │  ├─ __init__.py
-   │  └─ searchpath_plugin.py
-   └─ conf/
-      ├─ train_appo.yaml
-      ├─ env/
-      │  ├─ gym_pendulum.yaml
-      │  └─ isaac_go1_nav.yaml
-      ├─ ppo/
-      │  └─ default.yaml
-      ├─ logging/
-      │  └─ default.yaml
-      ├─ checkpoint/
-      │  └─ default.yaml
-      └─ experiment/
-         └─ default.yaml
+├─ pyproject.toml / setup.cfg             # package metadata (pip install -e .)
+├─ isaac_hydra_ext/
+   ├─ scripts/
+   │  └─ reinforcement_learning/
+   │     └─ appo/
+   │        ├─ train.py                   # entry point: isaac_hydra_ext.scripts.reinforcement_learning.appo.train
+   │        ├─ test.py                    # entry point: isaac_hydra_ext.scripts.reinforcement_learning.appo.test
+   │        ├─ cli_args.py                # cli utils
+   │        └─ runners/
+   │           └─ on_policy_runner.py     # appo runner logic
+   └─ source/
+      └─ isaaclab_tasks/
+         └─ manager_based/
+            └─ locomotion/
+               └─ velocity/
+                  ├─ config/
+                  │  └─ go1/
+                  │     ├─ __init__.py               # registers tasks: Isaac‑Velocity‑Sber‑Unitree‑Go1‑v0 / Play‑v0
+                  │     ├─ agents/
+                  │     │  └─  appo_cfg.yaml         
+                  │     ├─ env_scene/
+                  │     │  ├─ __init__.py
+                  │     │  ├─ commands.py        
+                  │     │  ├─ commands_cfg.py        
+                  │     │  ├─ events_cfg.py             
+                  │     │  ├─ events.py             
+                  │     │  ├─ objects.py             
+                  │     │  ├─ observations_cfg.py             
+                  │     │  ├─ scene.py             
+                  │     │  ├─ rewards.py             
+                  │     │  └─ termination_cfg.py             
+                  │     └─ rough_env_cfg.py          
+                  └─ velocity_env_cfg.py
+                     └─ registrations.py             
+
 ```
 
-> Tip: you can regenerate the tree automatically:
->
-> ```bash
-> sudo apt-get install -y tree
-> tree -a -I ".git|.venv|__pycache__|outputs|multirun" > TREE.txt
-> ```
+## Where are APPO parameters?
+
+**File:** `isaac_hydra_ext/scripts/reinforcement_learning/appo/configs/appo.yaml`
+
+Contains the main hyperparameters:
+- `lr`, `entropy_coef`, `clip_eps_*`, `kl_treshold`
+- `gamma`, `lam`
+- `update_epochs`, `batch_size`, `steps_per_env`
+- `num_workers`, `envs_per_worker`
+
+(If your copy stores them elsewhere, check the `configs/` folder next to `train.py`.)
 
 ---
 
-## How the Hydra plugin works
+## TRAINING
 
-The package exposes a plugin (`isaac_hydra_ext.plugins.searchpath_plugin.IsaacHydraSearchPathPlugin`) via `entry_points` so that, once installed, Hydra automatically appends this repo’s `conf/` to its search path. You can keep your Isaac-Lab checkout untouched and still resolve configs from this extension.
+Run **from the Isaac Lab install folder** (**ISAACLAB_ROOT**), so the launcher uses the correct environment.
+
+```bash
+cd /path/to/ISAACLAB_ROOT
+
+./isaaclab.sh -p -m isaac_hydra_ext.scripts.reinforcement_learning.appo.train \
+  --task Isaac-Velocity-Sber-Unitree-Go1-v0 \
+  --num_envs 1 \
+  --headless
+```
+
+Flags:
+- `-p` — use Isaac Lab python env.
+- `-m <module>` — Python module with the entry point (`train.py`).
+- `--task` — registered task name.
+- `--num_envs` — number of envs on this process (increase to speed up training).
+- `--headless` — disable GUI rendering (faster).
+- `--resume` — continue training from the last checkpoint.
+
+Logs / checkpoints go to the logger’s directory configured in `appo.yaml` (e.g., `logs/ppo_run/`).
 
 ---
 
-## Troubleshooting
+## TEST / DEMO
 
-- **“Can’t find config …”**  
-  Ensure `pip show isaac-hydra-ext` shows an installed dist **and** you’re running Python from that environment. If running inside Docker, install with `pip install -e /path/to/isaac_hydra_ext`.
+Also run from **ISAACLAB_ROOT**:
 
-- **Mixed Python versions**  
-  Isaac-Sim images include their own Python. Use the container’s `pip` to install this package.
+```bash
+cd /path/to/ISAACLAB_ROOT
 
-- **Permissions**  
-  When writing logs/checkpoints, point to a writable dir, e.g. `experiment.output_dir=/root/Documents/runs`.
-
----
+./isaaclab.sh -p -m isaac_hydra_ext.scripts.reinforcement_learning.appo.test \
+  --task Isaac-Velocity-Sber-Unitree-Go1-Play-v0 \
+  --rendering_mode performance
+```
 
 ## License
 
