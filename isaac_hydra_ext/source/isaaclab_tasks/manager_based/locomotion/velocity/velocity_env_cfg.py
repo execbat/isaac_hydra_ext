@@ -23,7 +23,9 @@ from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
-import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+#import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
+import isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene as mdp
+
 from isaaclab.envs.mdp.curriculums import modify_env_param
 
 from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import ObstacklesSceneCfg, ChaseCommandsCfg, ChaseObservationsCfg, ChaseTerminationsCfg, ChaseEventCfg
