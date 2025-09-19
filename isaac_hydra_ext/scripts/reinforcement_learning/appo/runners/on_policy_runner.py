@@ -45,21 +45,6 @@ def compute_gae(rewards, values, dones, gamma, lam, last_value):
         returns[t] = gae + values[t]
     return returns
 
-#def combine_batches(all_data):
-#    states     = torch.cat([d["states"]     for d in all_data], dim=0)  # [W*T*B, D]
-#    actions    = torch.cat([d["actions"]    for d in all_data], dim=0)  # [W*T*B, A]
-#    log_probs  = torch.cat([d["log_probs"]  for d in all_data], dim=0)  # [W*T*B]
-#    returns    = torch.cat([d["returns"]    for d in all_data], dim=0)  # [W*T*B]
-#    advantages = torch.cat([d["advantages"] for d in all_data], dim=0)  # [W*T*B]
-#    mus        = torch.cat([d["mus"]        for d in all_data], dim=0)  # [W*T*B, A]
-#    stds       = torch.cat([d["stds"]       for d in all_data], dim=0)  # [W*T*B, A]
-#    values     = torch.cat([d["values"]     for d in all_data], dim=0)#
-
-#    avg_ep_length        = np.mean([d["avg_ep_length"] for d in all_data])
-#    avg_ep_return        = np.mean([d["avg_ep_return"] for d in all_data])
-#    avg_reward_per_step  = np.mean([d["avg_reward_per_step"] for d in all_data])
-#    return states, actions, log_probs, returns, advantages, mus, stds, avg_reward_per_step, values, avg_ep_return, avg_ep_length
-
 
 def combine_batches(all_data):
     states     = torch.cat([d["states"]     for d in all_data], dim=0)
@@ -88,7 +73,7 @@ def combine_batches(all_data):
             mus, stds, avg_reward_per_step, values, avg_ep_return, avg_ep_length)
 
 
-# states, actions, old_log_probs, returns, advantages, mus, stds, reward_mean_step, old_values, ep_returns, ep_lengths = combine_batches(all_data)
+
 
 def collect_samples(envs, state_tensor, actor, critic, gamma: float, lam: float,
                     steps_per_env: int, device: torch.device) -> Dict[str, Any]:
@@ -637,9 +622,9 @@ class APPOMultiProcRunner:
             
                 all_data = [self.queue.get() for _ in range(self.num_workers)] # get data from workers
                 
-                self.start_event.clear() # block workers next epoch   
-                time.sleep(0.001)
-                self.start_event.set()   # !!! permit workers to collect again  !!!     
+                #self.start_event.clear() # block workers next epoch   
+                #time.sleep(0.001)
+                #self.start_event.set()   # !!! permit workers to collect again  !!!     
                 
                 states, actions, old_log_probs, returns, advantages, mus, stds, avg_reward_per_step, old_values, avg_ep_return, avg_ep_length = combine_batches(all_data)
                 
@@ -722,23 +707,23 @@ class APPOMultiProcRunner:
                         actor_loss = -torch.min(surr1, surr2).mean() - self.entropy_coef * entropy
                         
                         
-                        #critic_loss = nn.MSELoss()(self.critic(batch_states).squeeze(-1), batch_returns)
-                        v_pred = self.critic(batch_states).squeeze(-1)
-                        v_old  = batch_values 
+                        critic_loss = nn.MSELoss()(self.critic(batch_states).squeeze(-1), batch_returns)
+                        #v_pred = self.critic(batch_states).squeeze(-1)
+                        #v_old  = batch_values 
 
-                        v_clip = (v_pred - v_old).clamp(-0.2, 0.2) + v_old
-                        critic_loss = 0.5 * torch.max((v_pred - batch_returns).pow(2), (v_clip - batch_returns).pow(2)).mean()
+                        #v_clip = (v_pred - v_old).clamp(-0.2, 0.2) + v_old
+                        #critic_loss = 0.5 * torch.max((v_pred - batch_returns).pow(2), (v_clip - batch_returns).pow(2)).mean()
                         #critic_loss = (v_pred - batch_returns).pow(2).mean()
                         
                         
-                        self.actor_optim.zero_grad(set_to_none=True) #
+                        self.actor_optim.zero_grad() # set_to_none=True
                         actor_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.8) # 0.5
+                        #torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.8) # 0.5
                         self.actor_optim.step()
 
-                        self.critic_optim.zero_grad(set_to_none=True) #
+                        self.critic_optim.zero_grad() # set_to_none=True
                         critic_loss.backward()
-                        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.5) # 0.5
+                        #torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 1.5) # 0.5
                         self.critic_optim.step()
 
                 
@@ -747,13 +732,13 @@ class APPOMultiProcRunner:
                 self.kl_ema = (1 - self.beta_ema) * self.kl_ema + self.beta_ema * kl_mean
                 
                 if self.kl_ema > self.kl_treshold * 1.5:
-                    self.lr = max(self.lr * 0.5, 1e-5)
-                    self.clip_eps = max(self.clip_eps * 0.9, self.clip_eps_min)
-                    self._apply_lr()
+                    #self.lr = max(self.lr * 0.9, 1e-5)
+                    self.clip_eps = max(self.clip_eps * 0.95, self.clip_eps_min)
+                    #self._apply_lr()
                 elif self.kl_ema < self.kl_treshold * 0.5:
-                    self.lr = min(self.lr * 1.2, 1e-3)     
+                    #self.lr = min(self.lr * 1.1, 5e-3)     
                     self.clip_eps = min(self.clip_eps * 1.05, self.clip_eps_max)
-                    self._apply_lr()
+                    #self._apply_lr()
 
                 
                 if self.writer:

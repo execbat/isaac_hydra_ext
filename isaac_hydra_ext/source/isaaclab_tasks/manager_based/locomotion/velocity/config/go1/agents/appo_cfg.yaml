@@ -11,21 +11,21 @@ max_iterations: 1000000   #
 
 # --- parameters APPO ---
 appo_params:
-  num_workers: 4      # 4       # W
-  envs_per_worker: 64 # 64 # B
+  num_workers: 1      # 4       # W
+  envs_per_worker: 256 # 64 # B
   gamma: 0.99
   lam: 0.95
 
-  clip_eps_start: 0.3 # 0.3
+  clip_eps_start: 0.15 # 0.3
   clip_eps_max: 0.3   # 0.3
-  clip_eps_min: 0.05  # 0.05 
+  clip_eps_min: 0.1  # 0.05 
 
-  lr: 0.0003
+  lr: 0.0005
   entropy_coef: 0.003  #0.003
-  update_epochs: 10    # 10    number of updates of the main Policy using data of a single collected buffer of samples. In the main Process
-  batch_size: 512      # 512    batch size of a single update for main Policy. In the main Process
+  update_epochs: 6    # 10    number of updates of the main Policy using data of a single collected buffer of samples. In the main Process
+  batch_size: 1024      # 512    batch size of a single update for main Policy. In the main Process
   steps_per_env: 24    # 24    # T - number of samples collected from a single env before he update
-  kl_treshold: 0.009   # 0.005  
+  kl_treshold: 0.05   # 0.009  
  
 # Buffer size for every update is: W * B * T = 4 * 128 * 24 = 12288
 # Maximal number of unique data taken from buffer during update: batch_size * update_epochs = 8192 * 2 = 16384

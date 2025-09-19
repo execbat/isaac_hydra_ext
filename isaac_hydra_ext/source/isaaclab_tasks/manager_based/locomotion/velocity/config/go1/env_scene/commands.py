@@ -140,6 +140,26 @@ class TargetChaseVelocityCommand(CommandTerm):
             min=self.cfg.ranges.ang_vel_z[0],
             max=self.cfg.ranges.ang_vel_z[1],
         )
+        
+        # --- couple linear speed with yaw magnitude ---
+        # normalize |yaw_rate| by allowed max → w_norm ∈ [0, 1]
+        yaw_max = max(abs(self.cfg.ranges.ang_vel_z[0]), abs(self.cfg.ranges.ang_vel_z[1])) + 1e-6
+        w_norm = torch.clamp(torch.abs(yaw_rate) / yaw_max, 0.0, 1.0)
+
+        # smooth scaling: at |w|=0 → scale=1, at |w|=yaw_max → scale≈min_scale
+        # shape: (1 - w_norm)^alpha  with floor at min_scale
+        alpha = 2.0         # кривизна: больше → быстрее «тормозит» при повороте
+        min_scale = 0.05    # нижний предел линейной скорости при максимальном повороте
+
+        lin_scale = min_scale + (1.0 - min_scale) * (1.0 - w_norm).pow(alpha)
+
+        if self.cfg.allow_strafe:
+            vx_b = vx_b * lin_scale
+            vy_b = vy_b * lin_scale
+        else:
+            vx_b = vx_b * lin_scale
+            # vy_b уже 0
+        
 
         standing_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
         vx_b[standing_ids] = 0.0

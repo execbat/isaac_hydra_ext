@@ -16,7 +16,7 @@ class ChaseTerminationsCfg:
 #    root_too_low = DoneTerm(
 #        func=mdp.root_height_below_minimum,
 #        params={
-#            "minimum_height": 0.40,                 # порог по высоте, м
+#            "minimum_height": 0.20,                 # порог по высоте, м
 #            "asset_cfg": SceneEntityCfg("robot"), 
 #        },
 #    )
