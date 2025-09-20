@@ -268,10 +268,11 @@ while simulation_app.is_running():
                   f"act {tuple(action.shape)} {action.dtype}")
 
     action_to_env = action
-    print(f'Action {action_to_env}')
+    #print(f'Action {action_to_env}')
 
     next_obs, reward, terminated, truncated, info = env.step(action_to_env)
-    print(f'Observation {next_obs}')
+    #print(f'Observation {next_obs}')
+    print(f'reward {reward}')
 
     term = torch.as_tensor(terminated, dtype=torch.bool, device=device)
     trunc = torch.as_tensor(truncated,  dtype=torch.bool, device=device)

@@ -91,18 +91,20 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
 
         # REWARDS
         self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.params["threshold"] = 8.0 
+        self.rewards.feet_air_time.params["threshold"] = 0.5 
          #-0.08     
         
 
         #self.rewards.undesired_contacts = None
         
         
-        self.rewards.track_lin_vel_xy_exp_custom.weight = 5.0
-        self.rewards.track_ang_vel_z_exp_custom.weight = 10.0
+        self.rewards.track_lin_vel_xy_exp.weight = 2.0
+        self.rewards.track_ang_vel_z_exp.weight = 1.0
 #        self.rewards.track_vel_exp_product.weight = 10
-        self.rewards.com_over_support_h.weight = 10.0
-        self.rewards.upright.weight = 0.3
+        #self.rewards.com_over_support_h.weight = 10.0
+        self.rewards.upright.weight = 0.5
+        self.rewards.heading_align.weight = 0.25
+        #self.rewards.trot_rew.weight = 10
 #        self.rewards.progress_to_target.weight = 6.0 
         
         
@@ -110,19 +112,21 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # PENALTIES
         
         
-        self.rewards.flat_orientation_l2.weight = 0.0    
+        #self.rewards.flat_orientation_l2.weight = 0.0    
           
         
-        self.rewards.lin_vel_z_l2.weight = -0.1
-        self.rewards.ang_vel_xy_l2.weight = -0.1
-        self.rewards.dof_torques_l2.weight = -2.0e-4 
+        self.rewards.lin_vel_z_l2.weight = -2.0
+        self.rewards.ang_vel_xy_l2.weight = -0.05
+        self.rewards.dof_torques_l2.weight = -1.0e-5 
         self.rewards.joint_vel_l2.weight = -1.0e-4 
-        self.rewards.action_rate_l2.weight = -1.0e-3
+        self.rewards.action_rate_l2.weight = -0.01
         self.rewards.dof_acc_l2.weight = -1.0e-7
         self.rewards.dof_pos_limits.weight = -0.05 
-        self.rewards.feet_air_time.weight =  0.12
-        self.rewards.feet_slide.weight =  -5.0e-1
-        self.rewards.undesired_contacts.weight = -3.0
+        self.rewards.feet_air_time.weight =  0.0
+        self.rewards.feet_slide.weight =  0.0
+        self.rewards.undesired_contacts.weight = -1.0
+        self.rewards.alive.weight = 0.05
+        self.rewards.feet_impact_vel.weight = 0.0
         
          
         
@@ -130,8 +134,8 @@ class UnitreeGo1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         #self.rewards.track_ang_vel_z_mse.weight = -1.5 # penalty for not following desired direction
 
         # terminations
-        self.terminations.base_contact.params["sensor_cfg"].body_names = [] #, 'trunk', '.*_thigh', '.*_hip']
-        #self.rewards.termination_penalty.weight = -200.0
+        self.terminations.base_contact.params["sensor_cfg"].body_names = ["trunk"] #, 'trunk', '.*_thigh', '.*_hip']
+        self.rewards.termination_penalty.weight = -200.0
         
    
 

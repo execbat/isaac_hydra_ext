@@ -11,4 +11,5 @@ from .observations_cfg import ChaseObservationsCfg
 from .events import *
 from .termination_cfg import ChaseTerminationsCfg
 from .event_cfg import ChaseEventCfg
-from .rewards import *
+#from .rewards import *
+from .curriculum_cfg import ChaseCurriculumCfg

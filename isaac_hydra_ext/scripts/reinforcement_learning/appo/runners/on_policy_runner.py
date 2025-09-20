@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import io
 import time
+import queue as pyqueue
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -19,6 +20,45 @@ from isaac_hydra_ext.utils import Actor, Critic
 
 
 # ---------- utils ----------
+def get_latest(q, default=None):
+    """
+    drain all elems from Q and keep last.
+    """
+    last = default
+    while True:
+        try:
+            last = q.get_nowait()
+        except pyqueue.Empty:
+            return last
+        except (OSError, EOFError):
+            return last
+
+def drain_queue(q) -> int:
+    """
+    drain Q completely
+    """
+    dropped = 0
+    while True:
+        try:
+            q.get_nowait()
+            dropped += 1
+        except pyqueue.Empty:
+            break
+        except (OSError, EOFError):
+            # очередь закрыта/сломана — считаем, что опустошена
+            break
+    return dropped
+    
+def keep_latest(q, new_item):
+    """
+    Drain Q and put item into it
+    """
+    try:
+        drain_queue(q)
+        q.put_nowait(new_item)
+    except (OSError, EOFError):
+        pass    
+
 def move_state_dict_to_cpu(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     return {k: v.detach().cpu() for k, v in state_dict.items()}
 
@@ -372,10 +412,11 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
 
     try:
         while True:
-            start_event.wait()  # wait for permission from Main process to go to collect samples  
+            start_event.wait()  # wait for permission from Main process to go to collect samples
+            time.sleep(0.00001)  
         
             try:
-                new_actor_bytes, new_critic_bytes = model_queue.get_nowait()
+                new_actor_bytes, new_critic_bytes = get_latest(model_queue) # get the last model weights from the Q
                 actor.load_state_dict(torch.load(io.BytesIO(new_actor_bytes),  map_location=device, weights_only=True))
                 critic.load_state_dict(torch.load(io.BytesIO(new_critic_bytes), map_location=device, weights_only=True))
             except Exception:
@@ -390,7 +431,9 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
                 samples, ep_ret, ep_len, last_avg = update_episode_stats_from_batch(samples, ep_ret, ep_len, last_avg)
                
             # send samples to master process                              
-            queue.put(samples)
+            #queue.put(samples)
+            keep_latest(queue, samples)
+            
     except Exception as e:
         import traceback
         msg = f"[WORKER {worker_id}] crashed:\n{traceback.format_exc()}"
@@ -398,7 +441,7 @@ def _worker_collect_and_push(worker_id: int, env_id: str, actor_bytes: bytes, cr
         if errs_path:
             with open(errs_path, "a", encoding="utf-8") as f:
                 f.write(msg + "\n")
-        # сообщим главному процессу явным сообщением
+        
         try:
             queue.put({"_worker_error": msg})
         except Exception:
@@ -519,21 +562,6 @@ class APPOMultiProcRunner:
         act_dim = gym.spaces.flatdim(act_space)
         return int(obs_dim), int(act_dim)
 
-#    def _maybe_resume(self):
-#        # look for ckpts in current run_root/checkpoints
-#        if self.cfg.get("continue", False):
-#            actor_path = get_latest_model(self.ckpt_dir, "actor")
-#            critic_path = get_latest_model(self.ckpt_dir, "critic")
-#            if actor_path and critic_path:
-#                actor_sd  = torch.load(actor_path,  map_location=self.device, weights_only=True)
-#                critic_sd = torch.load(critic_path, map_location=self.device, weights_only=True)
-#                self.actor.load_state_dict(actor_sd)
-#                self.critic.load_state_dict(critic_sd)
-#                self.actor.train(); self.critic.train()
-#                print("Models were loaded successfully (resume).")
-#        else:
-#            print("Starting a new run.")
-
     def _maybe_resume(self):
         # look for ckpts in current run_root/checkpoints
         if self.resume:
@@ -622,9 +650,12 @@ class APPOMultiProcRunner:
             
                 all_data = [self.queue.get() for _ in range(self.num_workers)] # get data from workers
                 
-                #self.start_event.clear() # block workers next epoch   
-                #time.sleep(0.001)
-                #self.start_event.set()   # !!! permit workers to collect again  !!!     
+                self.start_event.clear() # block workers next epoch   
+                time.sleep(0.00001)
+                
+                drain_queue(self.queue)  # drain all samples from Q.
+                
+                self.start_event.set()   # !!! permit workers to collect again  !!!     
                 
                 states, actions, old_log_probs, returns, advantages, mus, stds, avg_reward_per_step, old_values, avg_ep_return, avg_ep_length = combine_batches(all_data)
                 
@@ -732,13 +763,13 @@ class APPOMultiProcRunner:
                 self.kl_ema = (1 - self.beta_ema) * self.kl_ema + self.beta_ema * kl_mean
                 
                 if self.kl_ema > self.kl_treshold * 1.5:
-                    #self.lr = max(self.lr * 0.9, 1e-5)
-                    self.clip_eps = max(self.clip_eps * 0.95, self.clip_eps_min)
-                    #self._apply_lr()
+                    self.lr = max(self.lr * 0.99, 1e-5)
+                    self.clip_eps = max(self.clip_eps * 0.995, self.clip_eps_min)
+                    self._apply_lr()
                 elif self.kl_ema < self.kl_treshold * 0.5:
-                    #self.lr = min(self.lr * 1.1, 5e-3)     
-                    self.clip_eps = min(self.clip_eps * 1.05, self.clip_eps_max)
-                    #self._apply_lr()
+                    self.lr = min(self.lr * 1.01, 5e-3)     
+                    self.clip_eps = min(self.clip_eps * 1.005, self.clip_eps_max)
+                    self._apply_lr()
 
                 
                 if self.writer:
@@ -778,7 +809,8 @@ class APPOMultiProcRunner:
                 
                     # send new weights to workers
                     for q in self.model_queues:
-                        q.put((actor_serialized, critic_serialized))
+                        keep_latest(q, (actor_serialized, critic_serialized)) # drop out everything and put
+                        #q.put((actor_serialized, critic_serialized))
                     
                 # --- resurrection of the dead workers ---
                 for i, p in enumerate(self.workers):
@@ -819,4 +851,3 @@ class APPOMultiProcRunner:
             if self.writer is not None:
                 self.writer.flush()
                 self.writer.close()
-

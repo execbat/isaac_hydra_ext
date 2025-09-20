@@ -6,7 +6,7 @@
 import gymnasium as gym
 
 from . import agents
-from . import env_scene
+#from . import env_scene
 
 ##
 # Register Gym environments.
@@ -21,6 +21,7 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": "isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.rough_env_cfg:UnitreeGo1RoughEnvCfg",
         "appo_cfg_entry_point": f"{agents.__name__}:appo_cfg.yaml",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo1RoughPPORunnerCfg",
     },
 )
 
@@ -31,5 +32,8 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": "isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.rough_env_cfg:UnitreeGo1RoughEnvCfg_PLAY",
         "appo_cfg_entry_point": f"{agents.__name__}:appo_cfg.yaml",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitreeGo1RoughPPORunnerCfg",
     },
 )
+
+  
