@@ -28,7 +28,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
 from isaaclab.envs.mdp.curriculums import modify_env_param
 
-from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import ObstacklesSceneCfg, ChaseCommandsCfg, ChaseObservationsCfg, ChaseTerminationsCfg, ChaseEventCfg, ChaseCurriculumCfg
+from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import ObstacklesSceneCfg, ChaseTrainCommandsCfg, ChaseTestCommandsCfg, ChaseObservationsCfg, ChaseTerminationsCfg, ChaseTrainEventCfg, ChaseTestEventCfg, ChaseCurriculumCfg
 
 
 ##
@@ -1339,11 +1339,11 @@ class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
     # Basic settings
     observations: ObservationsCfg = ChaseObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = ChaseCommandsCfg()
+    commands: CommandsCfg = ChaseTrainCommandsCfg()
     # MDP settings
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = ChaseTerminationsCfg()
-    events: EventCfg = ChaseEventCfg()
+    events: EventCfg = ChaseTrainEventCfg()
     curriculum: CurriculumCfg = ChaseCurriculumCfg()
 
     def __post_init__(self):
@@ -1372,97 +1372,4 @@ class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
             if self.scene.terrain.terrain_generator is not None:
                 self.scene.terrain.terrain_generator.curriculum = False
 
-### MAth added by Johnny    
-                
-@configclass
-class MathLocomotionVelocityRoughEnvCfg(MathManagerBasedRLEnvCfg):
-    """Configuration for the locomotion velocity-tracking environment."""
 
-    # Scene settings
-    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
-    # Basic settings
-    observations: ObservationsCfg = MathObservationsCfg()
-    actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = MathCommandsCfg()
-    # MDP settings
-    rewards: RewardsCfg = MathRewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    events: EventCfg = EventCfg()
-    # curriculum: CurriculumCfg = MathCurriculumCfg()
-    curriculum: CurriculumCfg = MathAdaptiveCurriculumCfg()
-    # added
-    adaptive_state: MathAdaptiveCurriculum = MathAdaptiveCurriculum()    
-
-    def __post_init__(self):
-        """Post initialization."""
-        # general settings
-        self.decimation = 4
-        self.episode_length_s = 40.0
-        # simulation settings
-        self.sim.dt = 0.005
-        self.sim.render_interval = self.decimation
-        self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
-        # update sensor update periods
-        # we tick all the sensors based on the smallest update period (physics update period)
-        if self.scene.height_scanner is not None:
-            self.scene.height_scanner.update_period = self.decimation * self.sim.dt
-        if self.scene.contact_forces is not None:
-            self.scene.contact_forces.update_period = self.sim.dt
-
-        # check if terrain levels curriculum is enabled - if so, enable curriculum for terrain generator
-        # this generates terrains with increasing difficulty and is useful for training
-        if getattr(self.curriculum, "terrain_levels", None) is not None:
-            if self.scene.terrain.terrain_generator is not None:
-                self.scene.terrain.terrain_generator.curriculum = True
-        else:
-            if self.scene.terrain.terrain_generator is not None:
-                self.scene.terrain.terrain_generator.curriculum = False
-                
-@configclass
-class MathTeleopLocomotionVelocityRoughEnvCfg(MathTeleopManagerBasedRLEnvCfg):
-    """Configuration for the locomotion velocity-tracking environment."""
-
-    # Scene settings
-    scene: MySceneCfg = MySceneCfg(num_envs=4096, env_spacing=2.5)
-    # Basic settings
-    observations: ObservationsCfg = MathTeleopObservationsCfg()
-    actions: ActionsCfg = ActionsCfg()
-    commands: CommandsCfg = MathTeleopCommandsCfg()
-    # MDP settings
-    rewards: RewardsCfg = MathTeleopRewardsCfg()
-    terminations: TerminationsCfg = TerminationsCfg()
-    events: EventCfg = EventCfg()
-    # curriculum: CurriculumCfg = MathCurriculumCfg()
-    curriculum: CurriculumCfg = MathAdaptiveCurriculumCfg()
-    # added
-    adaptive_state: MathAdaptiveCurriculum = MathAdaptiveCurriculum()
-    
-
-    def __post_init__(self):
-
-        """Post initialization."""
-        # general settings
-        self.decimation = 4 # For instance, if the simulation dt is 0.01s and the policy dt is 0.1s, then the decimation is 10. This means that the control action is updated every 10 simulation steps.
-        self.episode_length_s = 40.0
-        # simulation settings
-        self.sim.dt =  0.005
-        
-        self.sim.render_interval = self.decimation
-        self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
-        # update sensor update periods
-        # we tick all the sensors based on the smallest update period (physics update period)
-        if self.scene.height_scanner is not None:
-            self.scene.height_scanner.update_period = self.decimation * self.sim.dt
-        if self.scene.contact_forces is not None:
-            self.scene.contact_forces.update_period = self.sim.dt
-
-        # check if terrain levels curriculum is enabled - if so, enable curriculum for terrain generator
-        # this generates terrains with increasing difficulty and is useful for training
-        if getattr(self.curriculum, "terrain_levels", None) is not None:
-            if self.scene.terrain.terrain_generator is not None:
-                self.scene.terrain.terrain_generator.curriculum = True
-        else:
-            if self.scene.terrain.terrain_generator is not None:
-                self.scene.terrain.terrain_generator.curriculum = False                

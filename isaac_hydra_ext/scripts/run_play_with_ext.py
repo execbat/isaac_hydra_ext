@@ -1,4 +1,4 @@
-# isaac_hydra_ext/scripts/run_train_with_ext.py
+# isaac_hydra_ext/scripts/run_test_with_ext.py
 import os
 import sys
 
@@ -16,15 +16,15 @@ def _ensure_orbit_paths():
         raise RuntimeError(f"cli_args.py not found: {cli_args_py}. check ORBIT_ROOT={orbit_root}")
 
 def _register_envs():
-    import gymnasium as gym  
+    import gymnasium as gym 
     import isaac_hydra_ext  # noqa: F401
     import isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1  # noqa: F401
 
 def main():
     _ensure_orbit_paths()
     _register_envs()
-    from scripts.reinforcement_learning.rsl_rl import train
-    train.main()
+    from scripts.reinforcement_learning.rsl_rl import play
+    play.main()
 
 if __name__ == "__main__":
     main()

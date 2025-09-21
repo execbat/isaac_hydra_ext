@@ -98,78 +98,76 @@ class TargetChaseVelocityCommand(CommandTerm):
         self.is_standing_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_standing_envs
 
     def _update_command(self):
-        """Compute chase command towards the target in base frame."""
-        # --- states (world frame) ---
-        base_pos_w = self.robot.data.root_pos_w            # (N,3)
-        base_yaw_w = self.robot.data.heading_w             # (N,)
+        """Compute chase command towards the target:
+           vx_b — плавная скорость по дистанции,
+           vy_b — 0,
+           yaw_rate — подписанный угол между X_базы и вектором на цель (оба в мире).
+        """
+        # --- состояния (мир) ---
+        base_pos_w   = self.robot.data.root_pos_w          # (N,3)
+        base_yaw_w   = self.robot.data.heading_w           # (N,)
         target_pos_w = self.target.data.root_pos_w         # (N,3)
 
-        # --- geometry to target (world) ---
-        delta_w = target_pos_w - base_pos_w
-        delta_xy_w = delta_w[:, :2]
-        dist_xy = torch.linalg.norm(delta_xy_w, dim=1)
+        # --- вектор до цели (мир, XY) ---
+        delta_xy_w = (target_pos_w - base_pos_w)[:, :2]    # (N,2)
+        dist_xy = torch.linalg.norm(delta_xy_w, dim=1)     # (N,)
 
-        # world heading to target 
-        self.heading_target = torch.atan2(delta_xy_w[:, 1], delta_xy_w[:, 0])
+        # единичный вектор к цели (мир, XY)
+        eps = 1e-6
+        dir_tgt_w = torch.where(
+            (dist_xy > eps).unsqueeze(-1),
+            delta_xy_w / (dist_xy.unsqueeze(-1) + eps),
+            torch.zeros_like(delta_xy_w),
+        )  # (N,2)
 
-        # --- linear part in base frame (b) ---
-        cy, sy = torch.cos(base_yaw_w), torch.sin(base_yaw_w)
-        dx_b =  cy * delta_xy_w[:, 0] + sy * delta_xy_w[:, 1]
-        dy_b = -sy * delta_xy_w[:, 0] + cy * delta_xy_w[:, 1]
-        delta_b_xy = torch.stack([dx_b, dy_b], dim=1)
+        # --- единичный вектор X базы в мире (куда "смотрит" робот) ---
+        cx, sx = torch.cos(base_yaw_w), torch.sin(base_yaw_w)
+        x_base_w = torch.stack([cx, sx], dim=1)            # (N,2)
 
-        speed = torch.clamp(self.cfg.k_lin * dist_xy, 0.0, self.cfg.max_speed)
-        speed = torch.where(dist_xy < self.cfg.stop_radius, torch.zeros_like(speed), speed)
+        # --- подписанный угол между x_base_w и dir_tgt_w (в мире) ---
+        # angle = atan2( cross_z(a,b), dot(a,b) ), где cross_z([ax,ay],[bx,by]) = ax*by - ay*bx
+        dot = (x_base_w * dir_tgt_w).sum(dim=1)            # (N,)
+        cross_z = x_base_w[:, 0]*dir_tgt_w[:, 1] - x_base_w[:, 1]*dir_tgt_w[:, 0]
+        heading_err = torch.atan2(cross_z, dot)            # ∈ (-pi, pi)
 
-        if self.cfg.allow_strafe:
-            dir_b_xy = torch.nn.functional.normalize(delta_b_xy, dim=1, eps=1e-6)
-            vx_b = speed * dir_b_xy[:, 0]
-            vy_b = speed * dir_b_xy[:, 1]
-        else:
-            vx_b = speed
-            vy_b = torch.zeros_like(speed)
+        # --- угловая скорость (P по угловой ошибке) ---
+        yaw_rate = self.cfg.heading_control_stiffness * heading_err
+        yaw_rate = torch.clamp(yaw_rate, self.cfg.ranges.ang_vel_z[0], self.cfg.ranges.ang_vel_z[1])
 
-        # клампы
+        # --- продольная скорость: плавная по дистанции + замедление у цели ---
+        # убираем "мёртвую зону" радиуса остановки и делаем мягкую сатурацию
+        dist_eff = torch.clamp(dist_xy - self.cfg.stop_radius, min=0.0)     # (N,)
+        # мягкая кривая:  v = vmax * tanh(k_lin * dist_eff)
+        vx_b = self.cfg.max_speed * torch.tanh(self.cfg.k_lin * dist_eff)
+
+        # линейная скорость в бок (стрейф запрещён)
+        vy_b = torch.zeros_like(vx_b)
+
+        # --- клампы по диапазонам команды ---
         vx_b = torch.clamp(vx_b, self.cfg.ranges.lin_vel_x[0], self.cfg.ranges.lin_vel_x[1])
+        # vy уже 0, но на всякий случай клампнем
         vy_b = torch.clamp(vy_b, self.cfg.ranges.lin_vel_y[0], self.cfg.ranges.lin_vel_y[1])
 
-        # --- yaw rate ---
-        heading_err = math_utils.wrap_to_pi(self.heading_target - base_yaw_w)
-        yaw_rate = torch.clip(
-            self.cfg.heading_control_stiffness * heading_err,
-            min=self.cfg.ranges.ang_vel_z[0],
-            max=self.cfg.ranges.ang_vel_z[1],
-        )
-        
-        # --- couple linear speed with yaw magnitude ---
-        # normalize |yaw_rate| by allowed max → w_norm ∈ [0, 1]
+        # --- опционально: ещё сильнее притормаживать, когда большой разворот ---
+        # (если не нужно — можно убрать 4 строки ниже)
         yaw_max = max(abs(self.cfg.ranges.ang_vel_z[0]), abs(self.cfg.ranges.ang_vel_z[1])) + 1e-6
         w_norm = torch.clamp(torch.abs(yaw_rate) / yaw_max, 0.0, 1.0)
+        vx_b = vx_b * (1.0 - 0.7 * w_norm)  # при max |w| скорость ~30% от исходной
 
-        # smooth scaling: at |w|=0 → scale=1, at |w|=yaw_max → scale≈min_scale
-        # shape: (1 - w_norm)^alpha  with floor at min_scale
-        alpha = 2.0         # кривизна: больше → быстрее «тормозит» при повороте
-        min_scale = 0.05    # нижний предел линейной скорости при максимальном повороте
-
-        lin_scale = min_scale + (1.0 - min_scale) * (1.0 - w_norm).pow(alpha)
-
-        if self.cfg.allow_strafe:
-            vx_b = vx_b * lin_scale
-            vy_b = vy_b * lin_scale
-        else:
-            vx_b = vx_b * lin_scale
-            # vy_b уже 0
-        
-
+        # --- стоячие энвы (если включены) ---
         standing_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
-        vx_b[standing_ids] = 0.0
-        vy_b[standing_ids] = 0.0
-        yaw_rate[standing_ids] = 0.0
+        if standing_ids.numel() > 0:
+            vx_b[standing_ids] = 0.0
+            vy_b[standing_ids] = 0.0
+            yaw_rate[standing_ids] = 0.0
 
-        # запись
+        # --- запись команды в буфер (базовый фрейм) ---
         self.vel_command_b[:, 0] = vx_b
         self.vel_command_b[:, 1] = vy_b
         self.vel_command_b[:, 2] = yaw_rate
+
+        # для отладки: мировая «целевая» ориентация (не обязательно, но полезно)
+        self.heading_target = torch.atan2(dir_tgt_w[:, 1], dir_tgt_w[:, 0])
 
     # ------------------------
     # Debug visualization

@@ -6,13 +6,14 @@
 from isaaclab.utils import configclass
 
 from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg
-from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import TARGET_MARKER, OBSTACLE_CYL
+from isaac_hydra_ext.source.isaaclab_tasks.manager_based.locomotion.velocity.config.go1.env_scene import TARGET_MARKER, OBSTACLE_CYL, ChaseTestCommandsCfg, ChaseTestEventCfg
 ##
 # Pre-defined configs
 ##
 from isaaclab_assets.robots.unitree import UNITREE_GO1_CFG  # isort: skip
 from dataclasses import MISSING
 from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
+
 
 MAX_OBS = 40
 
@@ -147,6 +148,10 @@ class UnitreeGo1RoughEnvCfg_PLAY(UnitreeGo1RoughEnvCfg):
         
         self.decimation = 4 
         self.sim.dt =  0.005
+        
+        # REASSIGN COMMANDS AND EVENTS
+        self.commands = ChaseTestCommandsCfg()
+        self.events = ChaseTestEventCfg()
 
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
@@ -177,4 +182,4 @@ class UnitreeGo1RoughEnvCfg_PLAY(UnitreeGo1RoughEnvCfg):
         self.events.base_external_force_torque = None
         self.events.push_robot = None
         
-        self.terminations.base_contact.params["sensor_cfg"].body_names = [] #['trunk', '.*_thigh', '.*_hip']
+        self.terminations.base_contact.params["sensor_cfg"].body_names = ['trunk'] #['trunk', '.*_thigh', '.*_hip']

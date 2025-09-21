@@ -5,11 +5,11 @@
 
 from .scene import ObstacklesSceneCfg
 from .objects import TARGET_MARKER, OBSTACLE_CYL
-from .commands_cfg import ChaseCommandsCfg
+from .commands_cfg import ChaseTrainCommandsCfg, ChaseTestCommandsCfg
 from .commands import *
 from .observations_cfg import ChaseObservationsCfg
 from .events import *
 from .termination_cfg import ChaseTerminationsCfg
-from .event_cfg import ChaseEventCfg
+from .event_cfg import ChaseTrainEventCfg, ChaseTestEventCfg
 #from .rewards import *
 from .curriculum_cfg import ChaseCurriculumCfg
