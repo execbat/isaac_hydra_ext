@@ -186,10 +186,7 @@ Contains the main hyperparameters:
 
 ---
 
-<video controls width="720" poster="assets/poster.jpg">
-  <source src="assets/demo.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+[![Watch the demo]](demo.mp4)
 
 ## USING APPO LIB
 ## APPO TRAINING
