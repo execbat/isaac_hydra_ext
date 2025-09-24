@@ -186,7 +186,9 @@ Contains the main hyperparameters:
 
 ---
 
-[![Watch the demo]](demo.mp4)
+<video controls width="720" >
+  <source src="demo.mp4" type="video/mp4" />
+</video>
 
 ## USING APPO LIB
 ## APPO TRAINING
