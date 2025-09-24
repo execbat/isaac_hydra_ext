@@ -186,7 +186,10 @@ Contains the main hyperparameters:
 
 ---
 
-![Isaac Lab](demo.mp4)
+<video controls width="720" poster="assets/poster.jpg">
+  <source src="assets/demo.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 ## USING APPO LIB
 ## APPO TRAINING
