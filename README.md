@@ -157,7 +157,8 @@ isaac_hydra_ext/
                   │     ├─ env_scene/
                   │     │  ├─ __init__.py
                   │     │  ├─ commands.py        
-                  │     │  ├─ commands_cfg.py        
+                  │     │  ├─ commands_cfg.py 
+                  │     │  ├─ curriculum_cfg.py       
                   │     │  ├─ events_cfg.py             
                   │     │  ├─ events.py             
                   │     │  ├─ objects.py             
@@ -185,8 +186,10 @@ Contains the main hyperparameters:
 
 ---
 
-## TRAINING
+![Isaac Lab](demo.mp4)
 
+## USING APPO LIB
+## APPO TRAINING
 Run **from the Isaac Lab install folder** (**ISAACLAB_ROOT**), so the launcher uses the correct environment.
 
 ```bash
@@ -210,7 +213,7 @@ Logs / checkpoints go to the logger’s directory configured in `appo.yaml` (e.g
 
 ---
 
-## TEST / DEMO
+## APPO TEST 
 
 Also run from **ISAACLAB_ROOT**:
 
@@ -220,6 +223,33 @@ cd /path/to/ISAACLAB_ROOT
 ./isaaclab.sh -p -m isaac_hydra_ext.scripts.reinforcement_learning.appo.test \
   --task Isaac-Velocity-Sber-Unitree-Go1-Play-v0 \
   --rendering_mode performance
+```
+---
+
+## USING RSL_RL LIB
+## RSL_RL TRAINING
+
+```bash
+cd /path/to/ISAACLAB_ROOT
+
+./isaaclab.sh -p -m\
+isaac_hydra_ext.scripts.run_train_with_ext \
+--task Isaac-Velocity-Sber-Unitree-Go1-v0   \
+--num_envs 256 \
+--headless
+```
+
+## RSL_RL TEST 
+```bash
+cd /path/to/ISAACLAB_ROOT
+
+./isaaclab.sh -p -m\
+isaac_hydra_ext.scripts.run_play_with_ext \
+--task Isaac-Velocity-Sber-Unitree-Go1-Play-v0   \
+--num_envs 1 \
+--enable_cameras \
+--checkpoint ./logs/rsl_rl/unitree_go1_rough/2025-09-23_22-02-58/model_10100.pt \
+--rendering_mode performance
 ```
 
 ## License
