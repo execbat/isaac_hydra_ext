@@ -442,10 +442,10 @@ class RewardsCfg:
 
     # -- task
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp_custom, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25), "DEBUG": False}
+        func=mdp.track_lin_vel_xy_exp_custom, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.35), "DEBUG": False}
     )
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp_custom, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25), "DEBUG": False}
+        func=mdp.track_ang_vel_z_exp_custom, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.35), "DEBUG": False}
     )
     #track_vel_exp_product = RewTerm(
     #    func=mdp.track_lin_ang_vel_exp_product,
@@ -456,51 +456,27 @@ class RewardsCfg:
     #    ),
     #)
     
-#    com_over_support_h = RewTerm(
-#        func=mdp.com_over_support_height_reward_fast,
-#        weight=0.5,
-#        params={
-#            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-#            "asset_cfg":  SceneEntityCfg("robot",           body_names=".*_foot"),
-#            "contact_force_threshold": 5.0,     
-#            "target_height": 0.33,
-#            "height_tolerance": 0.05,
-#            "slope_aware": True,
-#            "weighted": True,
-#            "inside_margin": 0.08,
-#            "beta_inside": 4.0,
-#            "weight_height": 1.0,
-#            "weight_inside": 1.0,
-#            "DEBUG": False,                     
-#            "DEBUG_MAX_ENVS": 1,
-#        },
-#	    )
+    com_over_support_h = RewTerm(
+        func=mdp.com_over_support_height_reward_fast,
+        weight=0.5,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "asset_cfg":  SceneEntityCfg("robot",           body_names=".*_foot"),
+            "contact_force_threshold": 5.0,     
+            "target_height": 0.33,
+            "height_tolerance": 0.05,
+            "slope_aware": True,
+            "weighted": True,
+            "inside_margin": 0.08,
+            "beta_inside": 4.0,
+            "weight_height": 1.0,
+            "weight_inside": 1.0,
+            "DEBUG": False,                     
+            "DEBUG_MAX_ENVS": 1,
+        },
+	    )
     
-#    trot_rew = RewTerm(
-#        func=mdp.trot_rhythm_reward,
-#        weight=10.0,
-#        params={
-#            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-#            "asset_cfg":  SceneEntityCfg("robot",           body_names=".*_foot"),
-#            "target_hz": 2.0,
-#            "duty": 0.5,
-#            "contact_force_threshold": 5.0,
-#            "leg_order": [0,1,2,3],
-#            "phase_offsets": [0.0, math.pi, math.pi, 0.0],
-#            "k_match": 10.0,
-#            "w_phase": 1.0,
-#            "w_balance": 0.25,
-#            # new (optional):
-#            "tau_leak": 0.20,
-#            "alpha_phase": 1.0,
-#            "beta_balance": 1.0,
-#            "gamma_gate": 2.0,
-#            "zeta_stance": 1.0,
-#            "k_contact_sigmoid": 5.0,
-#            "eps_reward": 0.02,
-#            "DEBUG": False,
-#        },
-#    )
+
 
     
 #    progress_to_target = RewTerm(
@@ -525,6 +501,32 @@ class RewardsCfg:
         weight=0.25,
         params={"command_name": "base_velocity", "lin_cmd_threshold": 0.05, "beta": 4.0},
     )     
+    
+    trot_rew = RewTerm(
+        func=mdp.trot_rhythm_reward,
+        weight=0.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "asset_cfg":  SceneEntityCfg("robot",           body_names=".*_foot"),
+            "target_hz": 2.0,
+            "duty": 0.5,
+            "contact_force_threshold": 5.0,
+            "leg_order": [0,1,2,3],
+            "phase_offsets": [0.0, math.pi, math.pi, 0.0],
+            "k_match": 10.0,
+            "w_phase": 1.0,
+            "w_balance": 0.25,
+            # new (optional):
+            "tau_leak": 0.20,
+            "alpha_phase": 1.0,
+            "beta_balance": 1.0,
+            "gamma_gate": 2.0,
+            "zeta_stance": 1.0,
+            "k_contact_sigmoid": 5.0,
+            "eps_reward": 0.02,
+            "DEBUG": False,
+        },
+    )
 
     
     # -- penalties
@@ -560,7 +562,7 @@ class RewardsCfg:
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,
         weight=-1.0,
-        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["trunk", ".*hip.*", ".*thigh", ]), "threshold": 10.0}, # question about calf  , ".*calf.*"
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=["trunk", ".*calf.*", ".*hip.*", ".*thigh", ]), "threshold": 10.0}, # question about calf  , ".*calf.*"
     )
     
     alive = RewTerm(func=mdp.is_alive, weight=0.05)
@@ -576,7 +578,17 @@ class RewardsCfg:
             # "store_key": "_feet_prev_contact__foot"
         }
     )
-    
+    idle_penalty = RewTerm(
+        func = mdp.idle_penalty,
+        weight = -10.0,
+        params={
+            "command_name": "base_velocity",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "min_cmd_speed": 0.1,
+            "lin_speed_threshold": 0.05,
+            "scale": 1.0,
+        }
+    )
     # -- optional penalties
 #    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
     
@@ -1372,4 +1384,44 @@ class LocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
             if self.scene.terrain.terrain_generator is not None:
                 self.scene.terrain.terrain_generator.curriculum = False
 
+@configclass
+class TestLocomotionVelocityRoughEnvCfg(ManagerBasedRLEnvCfg):
+    """Configuration for the locomotion velocity-tracking environment."""
 
+    # Scene settings
+    scene: MySceneCfg = ObstacklesSceneCfg(num_envs=4096, env_spacing=2.5)
+    # Basic settings
+    observations: ObservationsCfg = ChaseObservationsCfg()
+    actions: ActionsCfg = ActionsCfg()
+    commands: CommandsCfg = ChaseTestCommandsCfg()
+    # MDP settings
+    rewards: RewardsCfg = RewardsCfg()
+    terminations: TerminationsCfg = ChaseTerminationsCfg()
+    events: EventCfg = ChaseTestEventCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
+
+    def __post_init__(self):
+        """Post initialization."""
+        # general settings
+        self.decimation = 4
+        self.episode_length_s = 40.0
+        # simulation settings
+        self.sim.dt = 0.005
+        self.sim.render_interval = self.decimation
+        self.sim.physics_material = self.scene.terrain.physics_material
+        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+        # update sensor update periods
+        # we tick all the sensors based on the smallest update period (physics update period)
+        if self.scene.height_scanner is not None:
+            self.scene.height_scanner.update_period = self.decimation * self.sim.dt
+        if self.scene.contact_forces is not None:
+            self.scene.contact_forces.update_period = self.sim.dt
+
+        # check if terrain levels curriculum is enabled - if so, enable curriculum for terrain generator
+        # this generates terrains with increasing difficulty and is useful for training
+        if getattr(self.curriculum, "terrain_levels", None) is not None:
+            if self.scene.terrain.terrain_generator is not None:
+                self.scene.terrain.terrain_generator.curriculum = True
+        else:
+            if self.scene.terrain.terrain_generator is not None:
+                self.scene.terrain.terrain_generator.curriculum = False

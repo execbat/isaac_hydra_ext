@@ -98,10 +98,12 @@ class TargetChaseVelocityCommand(CommandTerm):
         self.is_standing_env[env_ids] = r.uniform_(0.0, 1.0) <= self.cfg.rel_standing_envs
 
     def _update_command(self):
-        """Compute chase command towards the target:
-           vx_b — плавная скорость по дистанции,
+        """Генерация команды погони:
+           vx_b — по дистанции до цели (с мягкой сатурацией),
            vy_b — 0,
-           yaw_rate — подписанный угол между X_базы и вектором на цель (оба в мире).
+           yaw_rate — P по угловой ошибке курса,
+           + замедление линейной скорости пока курс не довернут,
+           + опционально «разворот на месте» при большой ошибке.
         """
         # --- состояния (мир) ---
         base_pos_w   = self.robot.data.root_pos_w          # (N,3)
@@ -120,53 +122,70 @@ class TargetChaseVelocityCommand(CommandTerm):
             torch.zeros_like(delta_xy_w),
         )  # (N,2)
 
-        # --- единичный вектор X базы в мире (куда "смотрит" робот) ---
+        # --- единичный вектор X базы в мире (куда «смотрит» робот) ---
         cx, sx = torch.cos(base_yaw_w), torch.sin(base_yaw_w)
         x_base_w = torch.stack([cx, sx], dim=1)            # (N,2)
 
         # --- подписанный угол между x_base_w и dir_tgt_w (в мире) ---
-        # angle = atan2( cross_z(a,b), dot(a,b) ), где cross_z([ax,ay],[bx,by]) = ax*by - ay*bx
+        # angle = atan2( cross_z(a,b), dot(a,b) )
         dot = (x_base_w * dir_tgt_w).sum(dim=1)            # (N,)
         cross_z = x_base_w[:, 0]*dir_tgt_w[:, 1] - x_base_w[:, 1]*dir_tgt_w[:, 0]
         heading_err = torch.atan2(cross_z, dot)            # ∈ (-pi, pi)
 
         # --- угловая скорость (P по угловой ошибке) ---
-        yaw_rate = self.cfg.heading_control_stiffness * heading_err
-        yaw_rate = torch.clamp(yaw_rate, self.cfg.ranges.ang_vel_z[0], self.cfg.ranges.ang_vel_z[1])
+        k_yaw = getattr(self.cfg, "heading_control_stiffness", 1.5)
+        yaw_min, yaw_max = self.cfg.ranges.ang_vel_z
+        yaw_rate = torch.clamp(k_yaw * heading_err, yaw_min, yaw_max)
 
-        # --- продольная скорость: плавная по дистанции + замедление у цели ---
-        # убираем "мёртвую зону" радиуса остановки и делаем мягкую сатурацию
-        dist_eff = torch.clamp(dist_xy - self.cfg.stop_radius, min=0.0)     # (N,)
-        # мягкая кривая:  v = vmax * tanh(k_lin * dist_eff)
-        vx_b = self.cfg.max_speed * torch.tanh(self.cfg.k_lin * dist_eff)
+        # --- продольная скорость: плавная по дистанции + «стоп-радиус» ---
+        stop_r   = getattr(self.cfg, "stop_radius", 0.3)
+        k_lin    = getattr(self.cfg, "k_lin", 1.5)                 # «крутизна» tanh
+        vmax_lin = getattr(self.cfg, "max_speed", 1.2)
 
-        # линейная скорость в бок (стрейф запрещён)
+        dist_eff = torch.clamp(dist_xy - stop_r, min=0.0)          # (N,)
+        vx_b = vmax_lin * torch.tanh(k_lin * dist_eff)             # (N,)
         vy_b = torch.zeros_like(vx_b)
 
         # --- клампы по диапазонам команды ---
-        vx_b = torch.clamp(vx_b, self.cfg.ranges.lin_vel_x[0], self.cfg.ranges.lin_vel_x[1])
-        # vy уже 0, но на всякий случай клампнем
-        vy_b = torch.clamp(vy_b, self.cfg.ranges.lin_vel_y[0], self.cfg.ranges.lin_vel_y[1])
+        vx_min, vx_max = self.cfg.ranges.lin_vel_x
+        vy_min, vy_max = self.cfg.ranges.lin_vel_y
+        vx_b = torch.clamp(vx_b, vx_min, vx_max)
+        vy_b = torch.clamp(vy_b, vy_min, vy_max)                   # тут останется 0 в допустимом диапазоне
 
-        # --- опционально: ещё сильнее притормаживать, когда большой разворот ---
-        # (если не нужно — можно убрать 4 строки ниже)
-        yaw_max = max(abs(self.cfg.ranges.ang_vel_z[0]), abs(self.cfg.ranges.ang_vel_z[1])) + 1e-6
-        w_norm = torch.clamp(torch.abs(yaw_rate) / yaw_max, 0.0, 1.0)
-        vx_b = vx_b * (1.0 - 0.7 * w_norm)  # при max |w| скорость ~30% от исходной
+        # --- замедление по угловой ошибке (один механизм!) ---
+        # при |heading_err| = 0 -> scale=1,
+        # при |heading_err| >= theta_slow -> scale=min_factor,
+        # между — линейная интерполяция.
+        theta_slow = getattr(self.cfg, "heading_slowdown_angle", 1.0)  # рад (~57°)
+        min_factor = getattr(self.cfg, "heading_slowdown_min", 0.25)   # минимум 25% от vx
+        abs_err = torch.abs(heading_err)
+
+        if theta_slow > 0.0:
+            scale = min_factor + (1.0 - min_factor) * torch.clamp(1.0 - abs_err / (theta_slow + 1e-6), 0.0, 1.0)
+            scale = torch.where(abs_err >= theta_slow, torch.full_like(scale, min_factor), scale)
+            vx_b = vx_b * scale
+
+        # --- опция: «разворот на месте» при очень большой ошибке курса ---
+        turn_in_place_angle = getattr(self.cfg, "turn_in_place_angle", None)  # например 1.2 рад (~69°)
+        if turn_in_place_angle is not None:
+            big_err = abs_err > turn_in_place_angle
+            if big_err.any():
+                vx_b = torch.where(big_err, torch.zeros_like(vx_b), vx_b)
 
         # --- стоячие энвы (если включены) ---
-        standing_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
-        if standing_ids.numel() > 0:
-            vx_b[standing_ids] = 0.0
-            vy_b[standing_ids] = 0.0
-            yaw_rate[standing_ids] = 0.0
+        if hasattr(self, "is_standing_env"):
+            standing_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
+            if standing_ids.numel() > 0:
+                vx_b[standing_ids] = 0.0
+                vy_b[standing_ids] = 0.0
+                yaw_rate[standing_ids] = 0.0
 
         # --- запись команды в буфер (базовый фрейм) ---
         self.vel_command_b[:, 0] = vx_b
         self.vel_command_b[:, 1] = vy_b
         self.vel_command_b[:, 2] = yaw_rate
 
-        # для отладки: мировая «целевая» ориентация (не обязательно, но полезно)
+        # для отладки: «целевая» ориентация в мире (не обязательно, но полезно)
         self.heading_target = torch.atan2(dir_tgt_w[:, 1], dir_tgt_w[:, 0])
 
     # ------------------------

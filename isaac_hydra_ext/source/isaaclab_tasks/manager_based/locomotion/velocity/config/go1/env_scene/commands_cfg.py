@@ -85,29 +85,49 @@ class ChaseTrainCommandsCfg:
             lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         ),
     )
-
-#    base_velocity = TargetChaseVelocityCommandCfg(
-#        asset_name="robot",
-#        target_asset_name="target",
-#        heading_command=True,
-#        heading_control_stiffness=0.5,
-#        max_speed=1.0,
-#        k_lin=1.0,
-#        stop_radius=0.15,
-#        allow_strafe=False,
-#        ranges=TargetChaseVelocityCommandCfg.Ranges(
-#            lin_vel_x=(-1.0, 1.0),
-#            lin_vel_y=(-1.0, 1.0),
-#            ang_vel_z=(-1.0, 1.0),
-#            heading=(-math.pi, math.pi),
-#        ),
-#        debug_vis=True,
-#        resampling_time_range=(0.0, 0.0),  
-#    )
-
+    '''
+    base_velocity = TargetChaseVelocityCommandCfg(
+        asset_name="robot",
+        target_asset_name="target",
+        heading_command=True,
+        heading_control_stiffness=0.5,
+        max_speed=1.0,
+        k_lin=1.0,
+        stop_radius=0.15,
+        allow_strafe=False,
+        ranges=TargetChaseVelocityCommandCfg.Ranges(
+            lin_vel_x=(0.0, 1.0),
+            lin_vel_y=(0.0, 0.0),
+            ang_vel_z=(-1.0, 1.0),
+            heading=(-math.pi, math.pi),
+        ),
+        debug_vis=True,
+        resampling_time_range=(0.0, 0.0),  
+    )
+    '''
 @configclass
 class ChaseTestCommandsCfg:
     """Command specifications for the MDP."""
+    
+    #FOR TEST ONLY
+    '''
+    base_velocity = mdp.UniformVelocityCommandCfg(
+        asset_name="robot",
+        resampling_time_range=(10.0, 10.0),
+        rel_standing_envs=0.02,
+        rel_heading_envs=1.0,
+        heading_command=True,
+        heading_control_stiffness=0.5,
+        debug_vis=True,
+        ranges=mdp.UniformVelocityCommandCfg.Ranges(
+            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+        ),
+    )
+    '''
+    
+    
+    
+  
 
     base_velocity = TargetChaseVelocityCommandCfg(
         asset_name="robot",
@@ -119,11 +139,12 @@ class ChaseTestCommandsCfg:
         stop_radius=0.15,
         allow_strafe=False,
         ranges=TargetChaseVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0),
+            lin_vel_x=(0.0, 2.0),
             lin_vel_y=(0.0, 0.0),
-            ang_vel_z=(-1.0, 1.0),
+            ang_vel_z=(-2.0, 2.0),
             heading=(-math.pi, math.pi),
         ),
         debug_vis=True,
         resampling_time_range=(0.0, 0.0),  
     )
+ 

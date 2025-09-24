@@ -221,7 +221,7 @@ class ChaseTestEventCfg:
         func=respawn_reached_targets,
         mode="interval",
         interval_range_s=(1.0, 1.0),
-        params={"reach_radius": 0.35, "r_min": 2.0, "r_max": 6.0, "z": 0.05},
+        params={"reach_radius": 0.6, "r_min": 4.0, "r_max": 20.0, "z": 0.05},
     )        
     
 #    update_cmd_towards_target = EventTerm(
